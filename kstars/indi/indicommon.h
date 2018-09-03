@@ -10,6 +10,9 @@
 #ifndef INDICOMMON_H
 #define INDICOMMON_H
 
+#include <QString>
+#include <QMap>
+
 /*!
 \page INDI "INDI Overview"
 \tableofcontents
@@ -87,7 +90,7 @@ the decorator classes implements extended functionlity, but the basic class is s
 
 #define INDIVERSION 1.7 /* we support this or less */
 
-typedef enum { PRIMARY_XML, THIRD_PARTY_XML, EM_XML, HOST_SOURCE, GENERATED_SOURCE } DriverSource;
+typedef enum { PRIMARY_XML, THIRD_PARTY_XML, EM_XML, HOST_SOURCE, CUSTOM_SOURCE, GENERATED_SOURCE } DriverSource;
 
 typedef enum { SERVER_CLIENT, SERVER_ONLY } ServerMode;
 
@@ -107,9 +110,6 @@ typedef enum { NO_DIR = 0, RA_INC_DIR, RA_DEC_DIR, DEC_INC_DIR, DEC_DEC_DIR } Gu
 #define MAX_SET_WIDTH        110
 #define MED_INDI_FONT        2
 #define MAX_LABEL_LENGTH     20
-
-// Pulse tracking
-#define INDI_PULSE_TRACKING 15000
 
 typedef enum { PG_NONE = 0, PG_TEXT, PG_NUMERIC, PG_BUTTONS, PG_RADIO, PG_MENU, PG_LIGHTS, PG_BLOB } PGui;
 
@@ -151,20 +151,36 @@ enum stdProperties
 
 /* Devices families that we explicitly support (i.e. with std properties) */
 typedef enum {
-    KSTARS_TELESCOPE,
+    KSTARS_ADAPTIVE_OPTICS,
+    KSTARS_AGENT,
+    KSTARS_AUXILIARY,
     KSTARS_CCD,
+    KSTARS_DETECTORS,
+    KSTARS_DOME,
     KSTARS_FILTER,
-    KSTARS_VIDEO,
     KSTARS_FOCUSER,
     KSTARS_ROTATOR,
-    KSTARS_DOME,
-    KSTARS_ADAPTIVE_OPTICS,
-    KSTARS_RECEIVERS,
-    KSTARS_GPS,
+    KSTARS_SPECTROGRAPHS,
+    KSTARS_TELESCOPE,
     KSTARS_WEATHER,
-    KSTARS_AUXILIARY,
     KSTARS_UNKNOWN
 } DeviceFamily;
+
+const QMap<DeviceFamily, QString> DeviceFamilyLabels = {
+    {KSTARS_ADAPTIVE_OPTICS, "Adaptive Optics"},
+    {KSTARS_AGENT, "Agent"},
+    {KSTARS_AUXILIARY, "Auxiliary"},
+    {KSTARS_CCD, "CCDs"},
+    {KSTARS_DETECTORS, "Detectors"},
+    {KSTARS_DOME, "Domes"},
+    {KSTARS_FILTER, "Filter Wheels"},
+    {KSTARS_FOCUSER, "Focusers"},
+    {KSTARS_ROTATOR, "Rotators"},
+    {KSTARS_SPECTROGRAPHS, "Spectrographs"},
+    {KSTARS_TELESCOPE, "Telescopes"},
+    {KSTARS_WEATHER, "Weather"},
+    {KSTARS_UNKNOWN, "Unknown"},
+};
 
 typedef enum { FRAME_LIGHT, FRAME_BIAS, FRAME_DARK, FRAME_FLAT } CCDFrameType;
 

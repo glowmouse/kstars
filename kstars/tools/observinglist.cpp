@@ -385,6 +385,7 @@ void ObservingList::slotAddObject(const SkyObject *_obj, bool session, bool upda
         ui->SessionView->resizeColumnsToContents();
         //Note addition in statusbar
         KStars::Instance()->statusBar()->showMessage(i18n("Added %1 to session list.", finalObjectName), 0);
+        SkyMap::Instance()->forceUpdate();
     }
     setSaveImagesButton();
 }
@@ -449,6 +450,7 @@ void ObservingList::slotRemoveObject(const SkyObject *_o, bool session, bool upd
         isModified = true;         //Removing an object should trigger the modified flag
         ui->avt->removeAllPlotObjects();
         ui->SessionView->resizeColumnsToContents();
+        SkyMap::Instance()->forceUpdate();
     }
 }
 
@@ -862,6 +864,7 @@ void ObservingList::slotOpenList()
         TimeHash.clear();
         m_CurrentObject = nullptr;
         m_SessionModel->removeRows(0, m_SessionModel->rowCount());
+        SkyMap::Instance()->forceUpdate();
         //First line is the name of the list. The rest of the file is
         //object names, one per line. With the TimeHash value if present
         QTextStream istream(&f);
@@ -915,6 +918,7 @@ void ObservingList::slotClearList()
             TimeHash.clear();
             isModified = true; //Removing an object should trigger the modified flag
             m_SessionModel->setRowCount(0);
+            SkyMap::Instance()->forceUpdate();
         }
     }
 }
@@ -1047,7 +1051,7 @@ void ObservingList::slotSaveSession(bool nativeSave)
 {
     if (sessionList().isEmpty())
     {
-        KMessageBox::error(nullptr, i18n("Cannot save an empty session list!"));
+        KMessageBox::error(nullptr, i18n("Cannot save an empty session list."));
         return;
     }
 
@@ -1204,6 +1208,7 @@ void ObservingList::slotUpdate()
             slotAddObject(obj.data(), true, true);
         }
     }
+    SkyMap::Instance()->forceUpdate();
 }
 
 void ObservingList::slotSetTime()
@@ -1278,7 +1283,7 @@ void ObservingList::downloadReady(bool success)
 
     if (!success)
     {
-        KMessageBox::sorry(nullptr, i18n("Failed to download DSS/SDSS image!"));
+        KMessageBox::sorry(nullptr, i18n("Failed to download DSS/SDSS image."));
     }
     else
     {

@@ -21,6 +21,7 @@
 
 #include "imageexporter.h"
 #include "kstarsdata.h"
+#include "kstars_debug.h"
 #include "kswizard.h"
 #include "Options.h"
 #include "skymap.h"
@@ -67,7 +68,7 @@
 
 #ifdef HAVE_INDI
 #include <basedevice.h>
-#include "indi/telescopewizardprocess.h"
+//#include "indi/telescopewizardprocess.h"
 #include "indi/opsindi.h"
 #include "indi/drivermanager.h"
 #include "indi/guimanager.h"
@@ -91,20 +92,18 @@
 #include <KActionCollection>
 #include <KActionMenu>
 #include <KTipDialog>
+#include <KToggleAction>
 #include <kns3/downloaddialog.h>
 
 #include <QQuickWindow>
 #include <QQuickView>
 
-#include <KToggleAction>
 
 #ifdef _WIN32
 #include <windows.h>
 #undef interface
 #endif
 #include <sys/stat.h>
-
-#include "kstars_debug.h"
 
 /** ViewToolBar Action.  All of the viewToolBar buttons are connected to this slot. **/
 
@@ -609,6 +608,7 @@ void KStars::slotFlagManager()
     m_FlagManager->show();
 }
 
+#if 0
 void KStars::slotTelescopeWizard()
 {
 #ifdef HAVE_INDI
@@ -643,6 +643,7 @@ void KStars::slotTelescopeWizard()
     delete twiz;
 #endif
 }
+#endif
 
 void KStars::slotINDIPanel()
 {
@@ -1170,7 +1171,7 @@ void KStars::slotOpenFITS()
 
     static QUrl path = QUrl::fromLocalFile(QDir::homePath());
     QUrl fileURL =
-        QFileDialog::getOpenFileUrl(KStars::Instance(), i18n("Open FITS"), path, "FITS (*.fits *.fit *.fts)");
+        QFileDialog::getOpenFileUrl(KStars::Instance(), i18n("Open FITS"), path, "FITS (*.fits *.fits.fz *.fit *.fts)");
 
     if (fileURL.isEmpty())
         return;
@@ -1631,7 +1632,7 @@ void KStars::slotHIPSSource()
     QAction *selectedAction = qobject_cast<QAction*>(sender());
     Q_ASSERT(selectedAction != nullptr);
 
-    QString selectedSource = selectedAction->text().remove("&");
+    QString selectedSource = selectedAction->text().remove('&');
 
     // selectedSource could be translated, while we need to send only Latin "None"
     // to Hips manager.

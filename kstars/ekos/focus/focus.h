@@ -27,7 +27,7 @@ namespace Ekos
  * @short Supports manual focusing and auto focusing using relative and absolute INDI focusers.
  *
  * @author Jasem Mutlaq
- * @version 1.3
+ * @version 1.4
  */
 class Focus : public QWidget, public Ui::Focus
 {
@@ -321,7 +321,7 @@ class Focus : public QWidget, public Ui::Focus
     void newStatus(Ekos::FocusState state);
     void newStarPixmap(QPixmap &);
     void newProfilePixmap(QPixmap &);
-    void newHFR(double hfr);
+    void newHFR(double hfr, int position);
     void absolutePositionChanged(int value);
     void focusPositionAdjusted();
 
@@ -475,7 +475,6 @@ class Focus : public QWidget, public Ui::Focus
     QVector<double> hfr_position, hfr_value;
 
     // Pixmaps
-    QPixmap starPixmap;
     QPixmap profilePixmap;
 
     /// State

@@ -64,7 +64,10 @@ class InternalGuider : public GuideInterface
     bool abort() override;
     bool suspend() override;
     bool resume() override;
+
     bool dither(double pixels) override;
+    bool ditherXY(int x, int y);
+
     bool clearCalibration() override { return true;}
     bool reacquire() override;
 
@@ -96,7 +99,7 @@ class InternalGuider : public GuideInterface
     bool isGuiding(void) const;
     void setAO(bool enable);
     void setInterface(void);
-    bool isRapidGuide() { return m_useRapidGuide; }
+    bool isRapidGuide() { return m_UseRapidGuide; }
 
     double getAOLimit();
     void setSubFramed(bool enable) { m_isSubFramed = enable; }
@@ -144,38 +147,67 @@ class InternalGuider : public GuideInterface
     QPointer<FITSView> guideFrame;
     bool m_isStarted { false };
     bool m_isSubFramed { false };
-    bool isFirstFrame { false };
-    bool first_subframe { false };
-    bool imageGuideEnabled { false };
+    bool m_isFirstFrame { false };
+    bool m_UseRapidGuide { false };
+    bool m_ImageGuideEnabled { false };
     int m_starLostCounter { 0 };
-    bool m_useRapidGuide { false };
-    QFile logFile;
-    int auto_drift_time { 5 };
-    int turn_back_time { 0 };
-    double start_x1 { 0 };
-    double start_y1 { 0 };
-    double end_x1 { 0 };
-    double end_y1 { 0 };
-    double start_x2 { 0 };
-    double start_y2 { 0 };
-    double end_x2 { 0 };
-    double end_y2 { 0 };
-    double last_x { 0 };
-    double last_y { 0 };
-    int ra_iterations { 0 };
-    int dec_iterations { 0 };
-    int m_LastPulse { 0 };
-    int m_RATotalPulse { 0 };
-    int m_DETotalPulse { 0 };
-    int m_BacklastCounter { 0 };
-    double phi { 0 };
-    uint32_t guideBoxSize { 32 };
+
+    QFile logFile;    
+    uint32_t guideBoxSize { 32 };    
+
+    struct
+    {
+        int auto_drift_time { 5 };
+        int turn_back_time { 0 };
+        int ra_iterations { 0 };
+        int dec_iterations { 0 };
+        int last_pulse { 0 };
+        int ra_total_pulse { 0 };
+        int de_total_pulse { 0 };
+        double phi { 0 };
+    } m_CalibrationParams;
+
+    struct
+    {
+        double start_x1 { 0 };
+        double start_y1 { 0 };
+        double end_x1 { 0 };
+        double end_y1 { 0 };
+        double start_x2 { 0 };
+        double start_y2 { 0 };
+        double end_x2 { 0 };
+        double end_y2 { 0 };
+        double last_x { 0 };
+        double last_y { 0 };
+        double ra_distance {0};
+        double de_distance {0};
+    } m_CalibrationCoords;
+
+    Vector m_DitherTargetPosition;
+    uint8_t m_DitherRetries {0};
 
     QTime reacquireTimer;
-    int m_highPulseCounter {0};
+    int m_highRMSCounter {0};
 
     Ekos::Matrix ROT_Z;
     CalibrationStage calibrationStage { CAL_IDLE };
     CalibrationType calibrationType;
+    Ekos::GuideState rememberState { GUIDE_IDLE };
+
+    // How many high RMS pulses before we stop
+    static const uint8_t MAX_RMS_THRESHOLD = 5;
+    // How many lost stars before we stop
+    static const uint8_t MAX_LOST_STAR_THRESHOLD = 5;
+
+    // Maximum pulse time limit for immediate capture. Any pulses longer that this
+    // will be delayed until pulse is over
+    static const uint16_t MAX_IMMEDIATE_CAPTURE = 250;
+    // When to start capture before pulse delay is over
+    static const uint16_t PROPAGATION_DELAY = 100;
+
+    // How many 'random' pixels can we move before we have to force direction reversal?
+    static const uint8_t MAX_DITHER_TRAVEL = 25;
+
+    QPair<double,double> accumulator;
 };
 }

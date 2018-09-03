@@ -81,7 +81,7 @@ FilterManager::FilterManager() : QDialog(KStars::Instance())
 
 void FilterManager::refreshFilterModel()
 {
-    if (m_currentFilterDevice == nullptr)
+    if (m_currentFilterDevice == nullptr || m_currentFilterLabels.empty())
         return;
 
     QString vendor(m_currentFilterDevice->getDeviceName());
@@ -189,7 +189,7 @@ void FilterManager::reloadFilters()
     }
 }
 
-void FilterManager::setCurrentFilter(ISD::GDInterface *filter)
+void FilterManager::setCurrentFilterWheel(ISD::GDInterface *filter)
 {
     if (m_currentFilterDevice == filter)
         return;
@@ -210,16 +210,24 @@ void FilterManager::setCurrentFilter(ISD::GDInterface *filter)
     connect(filter, SIGNAL(textUpdated(ITextVectorProperty*)), this, SLOT(processText(ITextVectorProperty*)));
     connect(filter, SIGNAL(numberUpdated(INumberVectorProperty*)), this, SLOT(processNumber(INumberVectorProperty*)));
     connect(filter, SIGNAL(switchUpdated(ISwitchVectorProperty*)), this, SLOT(processSwitch(ISwitchVectorProperty*)));
+    connect(filter, &ISD::GDInterface::Disconnected, [&]() {
+        m_currentFilterLabels.clear();
+        m_currentFilterPosition = -1;
+        m_currentFilterDevice = nullptr;
+        m_FilterNameProperty = nullptr;
+        m_FilterPositionProperty = nullptr;
+    });
 
     if (m_currentFilterLabels.isEmpty() == false)
         refreshFilterModel();
 
-    lastFilterOffset = m_ActiveFilters[m_currentFilterPosition-1]->offset();
+    if (m_ActiveFilters.count() >= m_currentFilterPosition)
+        lastFilterOffset = m_ActiveFilters[m_currentFilterPosition-1]->offset();
 }
 
 QStringList FilterManager::getFilterLabels(bool forceRefresh)
 {
-    if (forceRefresh == false)
+    if (forceRefresh == false || m_FilterNameProperty == nullptr)
         return m_currentFilterLabels;
 
     QStringList filterList;
@@ -234,8 +242,6 @@ QStringList FilterManager::getFilterLabels(bool forceRefresh)
             item = m_FilterNameProperty->tp[i].text;
         else if (i < filterAlias.count() && filterAlias[i].isEmpty() == false)
             item = filterAlias.at(i);
-        else
-            item = QString("Filter_%1").arg(i + 1);
 
         filterList.append(item);
     }
@@ -290,7 +296,7 @@ void FilterManager::processNumber(INumberVectorProperty *nvp)
     if (state == FILTER_CHANGE)
         executeOperationQueue();
     // If filter is changed externally, record its current offset as the starting offset.
-    else if (state == FILTER_IDLE)
+    else if (state == FILTER_IDLE && m_ActiveFilters.count() >= m_currentFilterPosition)
         lastFilterOffset = m_ActiveFilters[m_currentFilterPosition-1]->offset();
 
     // Check if we have to apply Focus Offset
@@ -413,11 +419,11 @@ void FilterManager::buildOperationQueue(FilterState operation)
         if (m_useTargetFilter)
         {            
             operationQueue.enqueue(FILTER_CHANGE);
-            if (m_Policy & OFFSET_POLICY)
+            if (m_FocusReady && (m_Policy & OFFSET_POLICY))
                 operationQueue.enqueue(FILTER_OFFSET);
         }
 
-        if ( (m_Policy & AUTOFOCUS_POLICY) && targetFilter->useAutoFocus())
+        if (m_FocusReady && (m_Policy & AUTOFOCUS_POLICY) && targetFilter->useAutoFocus())
             operationQueue.enqueue(FILTER_AUTOFOCUS);
     }
         break;
@@ -512,6 +518,9 @@ void FilterManager::setFocusOffsetComplete()
 
 double FilterManager::getFilterExposure(const QString &name) const
 {
+    if (m_currentFilterLabels.empty())
+        return 1;
+
     QString color = name;
     if (color.isEmpty())
         color = m_currentFilterLabels[m_currentFilterPosition-1];
@@ -528,6 +537,9 @@ double FilterManager::getFilterExposure(const QString &name) const
 
 bool FilterManager::setFilterExposure(int index, double exposure)
 {
+    if (m_currentFilterLabels.empty())
+        return false;
+
      QString color = m_currentFilterLabels[index];
      for (int i=0; i < m_ActiveFilters.count(); i++)
      {

@@ -350,7 +350,7 @@ void KStars::initActions()
 
     //Add HIPS Sources actions
     hipsActionMenu = actionCollection()->add<KActionMenu>("hipssources");
-    hipsActionMenu->setText(i18n("HiPS All Sky Overlay (Experimental)"));
+    hipsActionMenu->setText(i18n("HiPS All Sky Overlay"));
     hipsActionMenu->setDelayed(false);
     hipsActionMenu->setIcon(QIcon::fromTheme("view-preview"));
     HIPSManager::Instance()->readSources();
@@ -414,6 +414,9 @@ void KStars::initActions()
         << i18n("What's Interesting...") << QKeySequence(Qt::CTRL + Qt::Key_W);
     //#endif
 
+    actionCollection()->addAction("XPlanet", map(), SLOT(slotStartXplanetViewer()))
+        << i18n("XPlanet Solar System Simulator") << QKeySequence(Qt::CTRL + Qt::Key_X);
+
     actionCollection()->addAction("skycalendar", this, SLOT(slotCalendar())) << i18n("Sky Calendar");
 
 #ifdef HAVE_INDI
@@ -465,14 +468,19 @@ void KStars::initActions()
 // ==== devices Menu ================
 #ifdef HAVE_INDI
 #ifndef Q_OS_WIN
+#if 0
     actionCollection()->addAction("telescope_wizard", this, SLOT(slotTelescopeWizard()))
         << i18n("Telescope Wizard...")
         << QIcon::fromTheme("tools-wizard");
+#endif
 #endif
     actionCollection()->addAction("device_manager", this, SLOT(slotINDIDriver()))
         << i18n("Device Manager...")
         << QIcon::fromTheme("network-server")
         << QKeySequence(Qt::SHIFT + Qt::META + Qt::Key_D);
+    actionCollection()->addAction("custom_drivers", DriverManager::Instance(), SLOT(showCustomDrivers()))
+        << i18n("Custom Drivers...")
+        << QIcon::fromTheme("address-book-new");
     ka = actionCollection()->addAction("indi_cpl", this, SLOT(slotINDIPanel()))
         << i18n("INDI Control Panel...")
         << QKeySequence(Qt::CTRL + Qt::Key_I);
@@ -786,6 +794,13 @@ void KStars::datainitFinished()
     data()->setFullTimeUpdate();
     updateTime();
 
+    // Initial State
+    qCDebug(KSTARS) << "Date/Time is:" << data()->clock()->utc().toString();
+    qCDebug(KSTARS) << "Location:" << data()->geo()->fullName();
+    qCDebug(KSTARS) << "TZ0:" << data()->geo()->TZ0() << "TZ:" << data()->geo()->TZ();
+
+    KSTheme::Manager::instance()->setCurrentTheme(Options::currentTheme());
+
     //If this is the first startup, show the wizard
     if (Options::runStartupWizard())
     {
@@ -794,13 +809,6 @@ void KStars::datainitFinished()
 
     //Show TotD
     KTipDialog::showTip(this, "kstars/tips");
-
-    // Initial State
-    qCDebug(KSTARS) << "Date/Time is:" << data()->clock()->utc().toString();
-    qCDebug(KSTARS) << "Location:" << data()->geo()->fullName();
-    qCDebug(KSTARS) << "TZ0:" << data()->geo()->TZ0() << "TZ:" << data()->geo()->TZ();
-
-    KSTheme::Manager::instance()->setCurrentTheme(Options::currentTheme());
 }
 
 void KStars::initFocus()

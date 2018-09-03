@@ -59,13 +59,19 @@ OpsAstrometryIndexFiles::OpsAstrometryIndexFiles(Align *parent) : QDialog(KStars
 
     for (auto &bar : progressBars)
     {
-        bar->setVisible(false);
-        bar->setTextVisible(false);
+        if(bar->objectName().contains("progress"))
+        {
+            bar->setVisible(false);
+            bar->setTextVisible(false);
+        }
     }
 
     for (auto &button : qButtons)
     {
-        button->setVisible(false);
+        if(button->objectName().contains("cancel"))
+        {
+            button->setVisible(false);
+        }
     }
 
     for (QLabel * label: qLabels)
@@ -272,7 +278,7 @@ void OpsAstrometryIndexFiles::downloadIndexFile(const QString &URL, const QStrin
     if(indexDownloadInfo){
         if (indexDownloadProgress && maxIndex > 0)
             indexDownloadProgress->setValue(currentIndex*100 / maxIndex);
-        indexDownloadInfo->setText("(" + QString::number(currentIndex) + "/" + QString::number(maxIndex + 1) + ") ");
+        indexDownloadInfo->setText("(" + QString::number(currentIndex) + '/' + QString::number(maxIndex + 1) + ") ");
     }
 
     QString indexURL = URL;
@@ -301,14 +307,14 @@ void OpsAstrometryIndexFiles::downloadIndexFile(const QString &URL, const QStrin
                 indexDownloadProgress->setValue(bytesReceived);
                 indexDownloadProgress->setMaximum(bytesTotal);
             }
-            indexDownloadPerc->setText(QString::number(bytesReceived*100/bytesTotal)+"%");
+            indexDownloadPerc->setText(QString::number(bytesReceived * 100 / bytesTotal) + '%');
         });
 
     }
 
     QTimer::singleShot(timeout, response,
     [=]() {
-        KMessageBox::error(0, i18n("Download Timed out.  Either the network is not fast enough, the file is not accessible, or you aren't connected."));
+        KMessageBox::error(0, i18n("Download Timed out.  Either the network is not fast enough, the file is not accessible, or you are not connected."));
         disconnectDownload(cancelConnection,replyConnection,percentConnection);
         if(response){
             response->abort();
@@ -461,7 +467,7 @@ void OpsAstrometryIndexFiles::downloadOrDeleteIndexFiles(bool checked)
         else
         {
             if (KMessageBox::Continue == KMessageBox::warningContinueCancel(
-                                             NULL, "Are you sure you want to delete these index files? " + indexSeriesName,
+                                             NULL, i18n("Are you sure you want to delete these index files? %1", indexSeriesName),
                                              i18n("Delete File(s)"), KStandardGuiItem::cont(),
                                              KStandardGuiItem::cancel(), "delete_index_files_warning"))
             {

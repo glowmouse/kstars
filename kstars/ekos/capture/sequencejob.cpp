@@ -8,12 +8,12 @@
  */
 
 #include "sequencejob.h"
-#include "indi/driverinfo.h"
-#include "indi/clientmanager.h"
 
 #include "kstars.h"
 #include "kstarsdata.h"
 #include "Options.h"
+#include "indi/driverinfo.h"
+#include "indi/clientmanager.h"
 
 #include <KNotifications/KNotification>
 
@@ -23,6 +23,8 @@
 
 namespace Ekos
 {
+QString const & SequenceJob::ISOMarker("_ISO8601");
+
 SequenceJob::SequenceJob()
 {
     statusStrings = QStringList() << i18n("Idle") << i18n("In Progress") << i18n("Error") << i18n("Aborted")
@@ -72,7 +74,10 @@ void SequenceJob::done()
 
 void SequenceJob::prepareCapture()
 {
+    status = JOB_BUSY;
+
     prepareReady = false;
+
     // Reset all prepare actions
     setAllActionsReady();
 
@@ -281,7 +286,7 @@ SequenceJob::CAPTUREResult SequenceJob::capture(bool noCaptureFilter)
     if (activeFilter && activeFilter != activeCCD)
         activeCCD->setFilter(filter);
 
-    status = JOB_BUSY;
+    //status = JOB_BUSY;
 
     if (preview == false && statusCell)
         statusCell->setText(statusStrings[status]);
@@ -343,7 +348,8 @@ void SequenceJob::setCurrentTemperature(double value)
     if (enforceTemperature == false || fabs(targetTemperature - currentTemperature) <= Options::maxTemperatureDiff())
         prepareActions[ACTION_TEMPERATURE] = true;
 
-    if (prepareReady == false && areActionsReady() && (status == JOB_IDLE || status == JOB_ABORTED))
+    //if (prepareReady == false && areActionsReady() && (status == JOB_IDLE || status == JOB_ABORTED))
+    if (prepareReady == false && areActionsReady())
     {
         prepareReady = true;
         emit prepareComplete();
@@ -478,7 +484,7 @@ QString SequenceJob::getRemoteDir() const
 void SequenceJob::setRemoteDir(const QString &value)
 {
     remoteDirectory = value;
-    if (remoteDirectory.endsWith("/"))
+    if (remoteDirectory.endsWith('/'))
         remoteDirectory.chop(1);
 }
 
@@ -534,7 +540,8 @@ void SequenceJob::setCurrentFilter(int value)
     if (currentFilter == targetFilter)
         prepareActions[ACTION_FILTER] = true;
 
-    if (prepareReady == false && areActionsReady() && (status == JOB_IDLE || status == JOB_ABORTED))
+    //if (prepareReady == false && areActionsReady() && (status == JOB_IDLE || status == JOB_ABORTED))
+    if (prepareReady == false && areActionsReady())
     {
         prepareReady = true;
         emit prepareComplete();
@@ -550,7 +557,8 @@ void SequenceJob::setCurrentRotation(double value)
     if (fabs(currentRotation - targetRotation)*60 <= Options::astrometryRotatorThreshold())
         prepareActions[ACTION_ROTATOR] = true;
 
-    if (prepareReady == false && areActionsReady() && (status == JOB_IDLE || status == JOB_ABORTED))
+    //if (prepareReady == false && areActionsReady() && (status == JOB_IDLE || status == JOB_ABORTED))
+    if (prepareReady == false && areActionsReady())
     {
         prepareReady = true;
         emit prepareComplete();

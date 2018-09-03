@@ -502,7 +502,7 @@ class KStars : public KXmlGuiWindow
     /** Show the add deep-sky object dialog */
     void slotAddDeepSkyObject();
 
-    /** action slot: open KStars setup wizard */
+    /** action slot: open KStars startup wizard */
     void slotWizard();
 
     void updateLocationFromWizard(const GeoLocation& geo);
@@ -573,8 +573,10 @@ class KStars : public KXmlGuiWindow
     /** action slot: open Moon Phase Calendar tool */
     void slotMoonPhaseTool();
 
+    #if 0
     /** action slot: open Telescope wizard */
     void slotTelescopeWizard();
+    #endif
 
     /** action slot: open INDI driver panel */
     void slotINDIDriver();

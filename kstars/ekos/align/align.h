@@ -189,6 +189,8 @@ class Align : public QWidget, public Ui::Align
          */
     Q_SCRIPTABLE Q_NOREPLY void setFOVTelescopeType(int index);
 
+    int getFOVTelescopeType() {return FOVScopeCombo->currentIndex();}
+
     /** @}*/
 
     /**
@@ -205,13 +207,13 @@ class Align : public QWidget, public Ui::Align
 
     /**
          * @brief Set the current telescope
-         * @newTelescope pointer to telescope device.
+         * @param newTelescope pointer to telescope device.
          */
     void setTelescope(ISD::GDInterface *newTelescope);
 
     /**
          * @brief Set the current dome
-         * @newDome pointer to telescope device.
+         * @param ewDome pointer to telescope device.
          */
     void setDome(ISD::GDInterface *newDome);
 
@@ -268,7 +270,22 @@ class Align : public QWidget, public Ui::Align
          */
     void getFOVScale(double &fov_w, double &fov_h, double &fov_scale);
 
+    /**
+     * @brief getCalculatedFOVScale Get calculated FOV scales from the current CCD+Telescope combination.
+     * @param fov_w return calculated fov width in arcminutes
+     * @param fov_h return calculated fov height in arcminutes
+     * @param fov_scale return calculated fov pixcale in arcsecs per pixel.
+     * @note This is NOT the same as effective FOV which is the measured FOV from astrometry. It is the
+     * theoritical FOV from calculated values.
+     */
+    void getCalculatedFOVScale(double &fov_w, double &fov_h, double &fov_scale);
+
     void setFilterManager(const QSharedPointer<FilterManager> &manager);
+
+    // Ekos Live Client helper functions
+    QStringList getActiveSolvers() const;
+    int getActiveSolverIndex() const;
+    void setCaptureSettings(const QJsonObject &settings);
 
     /**
          * @brief generateOptions Generate astrometry.net option given the supplied map
@@ -282,13 +299,13 @@ class Align : public QWidget, public Ui::Align
 
     /**
          * @brief Process updated device properties
-         * @nvp pointer to updated property.
+         * @param nvp pointer to updated property.
          */
     void processNumber(INumberVectorProperty *nvp);
 
     /**
          * @brief Process updated device properties
-         * @svp pointer to updated property.
+         * @param svp pointer to updated property.
          */
     void processSwitch(ISwitchVectorProperty *svp);
 
@@ -386,6 +403,30 @@ class Align : public QWidget, public Ui::Align
     // Update Mount module status
     void setMountStatus(ISD::Telescope::TelescopeStatus newState);
 
+    // PAH Ekos Live
+    QString getPAHStage() const { return PAHStages[pahStage];}
+    bool isPAHEnabled() const { return isPAHReady; }
+    QString getPAHMessage() const;
+
+    void startPAHProcess();
+    void stopPAHProcess();
+    void setPAHCorrectionOffsetPercentage(double dx, double dy);
+    void setPAHMountDirection(int index) { PAHDirectionCombo->setCurrentIndex(index);}
+    void setPAHMountRotation(int value) {PAHRotationSpin->setValue(value);}
+    void setPAHRefreshDuration(double value) { PAHExposure->setValue(value);}
+    void startPAHRefreshProcess();
+    void setPAHRefreshComplete();
+    void setPAHCorrectionSelectionComplete();
+    void zoomAlignView();
+
+    // Align Settings
+    QJsonObject getSettings() const;
+    void setSettings(const QJsonObject &settings);
+
+    // PAH Settings. PAH should be in separate class
+    QJsonObject getPAHSettings() const;
+    void setPAHSettings(const QJsonObject &settings);
+
   private slots:
 
     /* Polar Alignment */
@@ -408,13 +449,9 @@ class Align : public QWidget, public Ui::Align
     void toggleAlignWidgetFullScreen();
 
     // Polar Alignment Helper slots
-    void startPAHProcess();
-    void restartPAHProcess();
+
     void rotatePAH();
     void setPAHCorrectionOffset(int x, int y);
-    void setPAHCorrectionSelectionComplete();
-    void startPAHRefreshProcess();
-    void setPAHRefreshComplete();
     void setWCSToggled(bool result);
 
     //Solutions Display slots
@@ -447,7 +484,10 @@ class Align : public QWidget, public Ui::Align
     void alignTypeChanged(const QString alignType);
     void togglePreviewAlignPoints();
     void slotSortAlignmentPoints();
-    void slotAutoScaleGraph();  
+    void slotAutoScaleGraph();
+
+    // Settings
+    void syncSettings();
 
   protected slots:
     /**
@@ -463,8 +503,23 @@ class Align : public QWidget, public Ui::Align
   signals:
     void newLog();
     void newStatus(Ekos::AlignState state);
-    //void newSolutionDeviation(double ra_arcsecs, double de_arcsecs);
+    // This is sent when we load an image in the view
+    void newImage(FITSView *view);
+    // This is sent when the pixmap is updated within the view
+    void newFrame(FITSView *view);
+    void polarResultUpdated(QLineF correctionVector, QString polarError);
+    void newCorrectionVector(QLineF correctionVector);
     void newSolverResults(double orientation, double ra, double dec, double pixscale);
+    void newSolution(const QJsonObject &solution);
+
+    // Polar Assistant Tool
+    void newPAHStage(PAHStage stage);
+    void newPAHMessage(const QString &message);    
+    void newFOVTelescopeType(int index);
+    void PAHEnabled(bool);
+
+    // Settings
+    void settingsUpdated(const QJsonObject &settings);
 
   private:
     /**
@@ -571,6 +626,7 @@ class Align : public QWidget, public Ui::Align
     QVariantMap getEffectiveFOV();
     void saveNewEffectiveFOV(double newFOVW, double newFOVH);
     QList<QVariantMap> effectiveFOVs;
+    void syncFOV();
 
     /// Which chip should we invoke in the current CCD?
     bool useGuideHead { false };
@@ -626,10 +682,10 @@ class Align : public QWidget, public Ui::Align
     double altDeviation { 0 };
     double decDeviation { 0 };
     static const double RAMotion;
-    static const float SIDRATE;
+    static const double SIDRATE;
 
     /// Have we slewed?
-    bool isSlewDirty { false };
+    bool isSlewDirty { false };    
 
     // Online and Offline parsers
     AstrometryParser* parser { nullptr };
@@ -694,6 +750,7 @@ class Align : public QWidget, public Ui::Align
 
     // Polar Alignment Helper
     PAHStage pahStage { PAH_IDLE };
+    bool isPAHReady { false };
 
     // keep track of autoWSC
     bool rememberAutoWCS { false };
@@ -757,5 +814,8 @@ class Align : public QWidget, public Ui::Align
 
     // Active Profile
     ProfileInfo *m_ActiveProfile { nullptr };
+
+    // PAH Stage Map
+    static const QMap<PAHStage, QString> PAHStages;
 };
 }

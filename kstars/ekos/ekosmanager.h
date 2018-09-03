@@ -30,6 +30,7 @@
 #include "mount/mount.h"
 #include "scheduler/scheduler.h"
 #include "auxiliary/filtermanager.h"
+#include "ksnotification.h"
 // Can't use forward decleration with QPointer. QTBUG-29588
 #include "auxiliary/opslogs.h"
 
@@ -39,8 +40,13 @@
 
 #include <memory>
 
-class QProgressIndicator;
+namespace EkosLive {
+  class Client;
+  class Message;
+  class Media;
+}
 
+class QProgressIndicator;
 class DriverInfo;
 class ProfileInfo;
 class KPageWidgetItem;
@@ -84,8 +90,11 @@ class EkosManager : public QDialog, public Ui::EkosManager
     Ekos::Guide *guideModule() { return guideProcess.get(); }
     Ekos::Align *alignModule() { return alignProcess.get(); }
     Ekos::Mount *mountModule() { return mountProcess.get(); }
+    Ekos::Focus *focusModule() { return focusProcess.get(); }
+    Ekos::Capture *captureModule() { return captureProcess.get(); }
     FITSView *getSummaryPreview() { return summaryPreview.get(); }
     QString getCurrentJobName();
+    void announceEvent(const QString &message, KSNotification::EventType event);
 
     /**
      * @defgroup EkosDBusInterface Ekos DBus Interface
@@ -135,6 +144,9 @@ class EkosManager : public QDialog, public Ui::EkosManager
      */
     Q_SCRIPTABLE bool stop();
 
+ signals:
+    void newEkosStartingStatus(CommunicationStatus status);
+
   protected:
     void closeEvent(QCloseEvent *);
     void hideEvent(QHideEvent *);
@@ -172,7 +184,7 @@ class EkosManager : public QDialog, public Ui::EkosManager
     void showEkosOptions();
 
     void updateLog();
-    void clearLog();
+    void clearLog();    
 
     void processTabChange();
 
@@ -221,7 +233,7 @@ class EkosManager : public QDialog, public Ui::EkosManager
     void setFocusStatus(Ekos::FocusState status);
     void updateFocusStarPixmap(QPixmap &starPixmap);
     void updateFocusProfilePixmap(QPixmap &profilePixmap);
-    void updateCurrentHFR(double newHFR);
+    void updateCurrentHFR(double newHFR, int position);
 
     // Guide Summary
     void updateGuideStatus(Ekos::GuideState status);
@@ -279,6 +291,8 @@ class EkosManager : public QDialog, public Ui::EkosManager
     std::unique_ptr<Ekos::Weather> weatherProcess;
     std::unique_ptr<Ekos::DustCap> dustCapProcess;
 
+    std::unique_ptr<EkosLive::Client> ekosLiveClient;
+
     bool localMode { true };
     bool isStarted { false };
     bool remoteManagerStart { false };
@@ -304,7 +318,6 @@ class EkosManager : public QDialog, public Ui::EkosManager
     QTime overallCountDown;
     QTime sequenceCountDown;
     QTimer countdownTimer;
-//    QPixmap *previewPixmap;
     QProgressIndicator *capturePI { nullptr };
     // Preview Frame
     std::unique_ptr<FITSView> summaryPreview;
@@ -312,20 +325,18 @@ class EkosManager : public QDialog, public Ui::EkosManager
     // Focus Summary
     QProgressIndicator *focusPI { nullptr };
     std::unique_ptr<QPixmap> focusStarPixmap;
-    //QPixmap *focusProfilePixmap;
-    //QTemporaryFile focusStarFile;
-    //QTemporaryFile focusProfileFile;
 
     // Guide Summary
     QProgressIndicator *guidePI { nullptr };
     std::unique_ptr<QPixmap> guideStarPixmap;
-    //QPixmap *guideProfilePixmap;
-    //QTemporaryFile guideStarFile;
-    //QTemporaryFile guideProfileFile;
 
     ProfileInfo *currentProfile { nullptr };
     bool profileWizardLaunched { false };
 
     // Logs
     QPointer<Ekos::OpsLogs> opsLogs;
+
+    friend class EkosLive::Client;
+    friend class EkosLive::Message;
+    friend class EkosLive::Media;
 };

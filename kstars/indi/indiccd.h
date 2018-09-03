@@ -153,25 +153,35 @@ class CCD : public DeviceDecorator
     void processBLOB(IBLOB *bp);
 
     DeviceFamily getType() { return dType; }
-    bool hasGuideHead();
-    bool hasCooler();
-    bool hasCoolerControl();
-    bool hasVideoStream() { return HasVideoStream; }
-    bool setCoolerControl(bool enable);
 
-    // Utitlity functions
+    // Does it an on-chip dedicated guide head?
+    bool hasGuideHead();
+    // Does it report temperature?
+    bool hasCooler();
+    // Can temperature be controlled?
+    bool canCool() { return CanCool; }
+    // Does it have active cooler on/off controls?
+    bool hasCoolerControl();
+    bool setCoolerControl(bool enable);
+    // Does it have a video stream?
+    bool hasVideoStream() { return HasVideoStream; }    
+
+    // Temperature controls
     bool getTemperature(double *value);
     bool setTemperature(double value);
+
+    // Utitlity functions        
     void setISOMode(bool enable) { ISOMode = enable; }
     void setSeqPrefix(const QString &preFix) { seqPrefix = preFix; }
     void setNextSequenceID(int count) { nextSequenceID = count; }
     void setFilter(const QString &newFilter) { filter = newFilter; }
 
-    // Gain
+    // Gain controls
     bool hasGain() { return gainN != nullptr; }
     bool getGain(double *value);
-    bool getGainMinMaxStep(double *min, double *max, double *step);
+    IPerm getGainPermission() const {return gainPerm;}
     bool setGain(double value);
+    bool getGainMinMaxStep(double *min, double *max, double *step);
 
     // Rapid Guide
     bool configureRapidGuide(CCDChip *targetChip, bool autoLoop, bool sendImage = false, bool showMarker = false);
@@ -195,6 +205,8 @@ class CCD : public DeviceDecorator
     bool resetStreamingFrame();
     bool setStreamingFrame(int x, int y, int w, int h);
     bool isStreamingEnabled();
+    bool setStreamExposure(double duration);
+    bool getStreamExposure(double *duration);
 
     // Video Recording
     bool setSERNameDirectory(const QString &filename, const QString &directory);
@@ -236,6 +248,7 @@ class CCD : public DeviceDecorator
     void videoStreamToggled(bool enabled);
     void videoRecordToggled(bool enabled);
     void newFPS(double instantFPS, double averageFPS);
+    void newVideoFrame(std::unique_ptr<QImage> & frame);
 
   private:
     void addFITSKeywords(const QString& filename);
@@ -244,6 +257,7 @@ class CCD : public DeviceDecorator
     bool ISOMode { true };
     bool HasGuideHead { false };
     bool HasCooler { false };
+    bool CanCool { false };
     bool HasCoolerControl { false };
     bool HasVideoStream { false };
     bool IsLooping { false };
@@ -267,6 +281,7 @@ class CCD : public DeviceDecorator
 
     // Gain, since it is spread among different vector properties, let's try to find the property itself.
     INumber *gainN { nullptr };
+    IPerm gainPerm { IP_RO };
 
     QPointer<FITSViewer> fv;
     QPointer<ImageViewer> imageViewer;

@@ -20,7 +20,7 @@
 #include <QTime>
 #include <QTimer>
 #include <QUrl>
-#include <QtDBus/QtDBus>
+#include <QtDBus>
 
 #include <cstdint>
 
@@ -205,6 +205,32 @@ class Scheduler : public QWidget, public Ui::Scheduler
 
     /** @}*/
 
+    /** @{ */
+  private:
+    /** @internal Safeguard flag to avoid registering signals from widgets multiple times.
+     */
+    bool jobChangesAreWatched { false };
+
+  protected:
+    /** @internal Enables signal watch on SchedulerJob form values in order to apply changes to current job.
+      * @param enable is the toggle flag, true to watch for changes, false to ignore them.
+      */
+    void watchJobChanges(bool enable);
+
+    /** @internal Marks the currently selected SchedulerJob as modified change.
+     *
+     * This triggers job re-evaluation.
+     * Next time save button is invoked, the complete content is written to disk.
+      */
+    void setDirty();
+    /** @} */
+
+  protected:
+    /** @internal Associate job table cells on a row to the corresponding SchedulerJob.
+     * @param row is an integer indexing the row to associate cells from, and also the index of the job in the job list..
+     */
+    void setJobStatusCells(int row);
+
   protected slots:
 
     /**
@@ -254,20 +280,44 @@ class Scheduler : public QWidget, public Ui::Scheduler
          */
     void removeJob();
 
+    /**
+         * @brief setJobAddApply Set first button state to add new job or apply changes.
+         */
+    void setJobAddApply(bool add_mode);
+
+    /**
+         * @brief setJobManipulation Enable or disable job manipulation buttons.
+         */
+    void setJobManipulation(bool enable);
+
+    /**
+         * @brief clickQueueTable Update UI state when the job list is clicked once.
+         */
+    void clickQueueTable(QModelIndex index);
+
+    /**
+         * @brief moveJobUp Move the selected job up in the job list.
+         */
+    void moveJobUp();
+
+    /**
+        * @brief moveJobDown Move the selected job down in the list.
+        */
+    void moveJobDown();
+
     void toggleScheduler();
     void pause();
     void save();
     void saveAs();
     void load();
 
-    void resetJobState(QModelIndex i);
-
     void resetJobEdit();
 
     /**
-         * @brief checkJobStatus Check the overall state of the scheduler, Ekos, and INDI. When all is OK, it call evaluateJobs();
+         * @brief checkJobStatus Check the overall state of the scheduler, Ekos, and INDI. When all is OK, it calls evaluateJobs() when no job is current or executeJob() if a job is selected.
+         * @return False if this function needs to be called again later, true if situation is stable and operations may continue.
          */
-    void checkStatus();
+    bool checkStatus();
 
     /**
          * @brief checkJobStage Check the progress of the job states and make DBUS call to start the next stage until the job is complete.
@@ -285,6 +335,12 @@ class Scheduler : public QWidget, public Ui::Scheduler
     void stopCurrentJobAction();
 
     /**
+         * @brief manageConnectionLoss Mitigate loss of connection with the INDI server.
+         * @return true if connection to Ekos/INDI should be attempted again, false if not mitigation is available or needed.
+         */
+    bool manageConnectionLoss();
+
+    /**
          * @brief readProcessOutput read running script process output and display it in Ekos
          */
     void readProcessOutput();
@@ -294,16 +350,6 @@ class Scheduler : public QWidget, public Ui::Scheduler
          * @param exitCode exit code from the script process. Depending on the exist code, the status of startup/shutdown procedure is set accordingly.
          */
     void checkProcessExit(int exitCode);
-
-    /**
-         * @brief watchJobChanges Watch any changes in form values and apply changes to current job selection or ignore any changes
-         * @param enable True to watch changes and apply them to current job, false to ignore changes
-         */
-    void watchJobChanges(bool enable);
-    /**
-         * @brief setDirty Call it to mark the Ekos Scheduler List for change. Next time save button is invoked, the complete content is written to disk.
-         */
-    void setDirty();
 
     /**
          * @brief resumeCheckStatus If the scheduler primary loop was suspended due to weather or sleep event, resume it again.
@@ -420,6 +466,12 @@ class Scheduler : public QWidget, public Ui::Scheduler
          * @return True if Ekos is running, false if Ekos start up is in progress.
          */
     bool checkEkosState();
+
+    /**
+         * @brief isINDIConnected Determines the status of the INDI connection.
+         * @return True if INDI connection is up and usable, else false.
+         */
+    bool isINDIConnected();
 
     /**
          * @brief checkINDIState Check INDI startup stages and take whatever action necessary to get INDI devices connected.
@@ -553,7 +605,11 @@ class Scheduler : public QWidget, public Ui::Scheduler
 
     bool isWeatherOK(SchedulerJob *job);
 
-    void updateCompletedJobsCount();
+    /**
+        * @brief updateCompletedJobsCount For each scheduler job, examine sequence job storage and count captures.
+        * @param forced forces recounting captures unconditionally if true, else only IDLE, EVALUATION or new jobs are examined.
+        */
+    void updateCompletedJobsCount(bool forced = false);
 
     SequenceJob *processJobInfo(XMLEle *root, SchedulerJob *schedJob);
     bool loadSequenceQueue(const QString &fileURL, SchedulerJob *schedJob, QList<SequenceJob *> &jobs,
@@ -630,6 +686,8 @@ class Scheduler : public QWidget, public Ui::Scheduler
     bool autofocusCompleted { false };
     /// Keep track of INDI connection failures
     uint8_t indiConnectFailureCount { 0 };
+    /// Keep track of Ekos connection failures
+    uint8_t ekosConnectFailureCount { 0 };
     /// Keep track of Ekos focus module failures
     uint8_t focusFailureCount { 0 };
     /// Keep track of Ekos guide module failures

@@ -847,6 +847,7 @@ void CCD::registerProperty(INDI::Property *prop)
     {
         INumberVectorProperty *np = prop->getNumber();
         HasCooler                 = true;
+        CanCool                   = (np->p != IP_RO);
         if (np)
             emit newTemperatureValue(np->np[0].value);
     }
@@ -912,6 +913,7 @@ void CCD::registerProperty(INDI::Property *prop)
                 if (name == "gain" || label == "gain")
                 {
                     gainN = gainNP->np + i;
+                    gainPerm = gainNP->p;
                     break;
                 }
             }
@@ -1055,7 +1057,8 @@ void CCD::processSwitch(ISwitchVectorProperty *svp)
 
         if (streamWindow.get() != nullptr)
         {
-            connect(streamWindow.get(), SIGNAL(hidden()), this, SLOT(StreamWindowHidden()), Qt::UniqueConnection);
+            connect(streamWindow.get(), &StreamWG::hidden, this, &CCD::StreamWindowHidden, Qt::UniqueConnection);
+            connect(streamWindow.get(), &StreamWG::imageChanged, this, &CCD::newVideoFrame, Qt::UniqueConnection);
 
             streamWindow->enableStream(svp->sp[0].s == ISS_ON);
             emit videoStreamToggled(svp->sp[0].s == ISS_ON);
@@ -2371,4 +2374,31 @@ bool CCD::setExposureLoopCount(uint32_t count)
 
     return true;
 }
+
+bool CCD::setStreamExposure(double duration)
+{
+    INumberVectorProperty *nvp = baseDevice->getNumber("STREAMING_EXPOSURE");
+
+    if (nvp == nullptr)
+        return false;
+
+    nvp->np[0].value = duration;
+
+    clientManager->sendNewNumber(nvp);
+
+    return true;
+}
+
+bool CCD::getStreamExposure(double *duration)
+{
+    INumberVectorProperty *nvp = baseDevice->getNumber("STREAMING_EXPOSURE");
+
+    if (nvp == nullptr)
+        return false;
+
+    *duration = nvp->np[0].value;
+
+    return true;
+}
+
 }

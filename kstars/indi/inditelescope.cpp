@@ -16,9 +16,10 @@
 #include "Options.h"
 #include "skymap.h"
 #include "skymapcomposite.h"
+#include "ksnotification.h"
 
-#include <KNotification>
 #include <KActionCollection>
+
 #include <QAction>
 
 #include <indi_debug.h>
@@ -132,13 +133,28 @@ void Telescope::registerProperty(INDI::Property *prop)
         m_hasCustomTrackRate = true;
     else if (!strcmp(prop->getName(), "TELESCOPE_PARK_OPTION"))
         m_hasCustomParking = true;
+    else if (!strcmp(prop->getName(), "TELESCOPE_SLEW_RATE"))
+    {
+        m_hasSlewRates = true;
+        ISwitchVectorProperty *svp = prop->getSwitch();
+        if (svp)
+        {
+            m_slewRates.clear();
+            for (int i=0; i < svp->nsp; i++)
+                m_slewRates << svp->sp[i].label;
+        }
+    }
+    else if (!strcmp(prop->getName(), "EQUATORIAL_EOD_COORD"))
+        m_isJ2000 = false;
+    else if (!strcmp(prop->getName(), "EQUATORIAL_COORD"))
+        m_isJ2000 = true;
 
     DeviceDecorator::registerProperty(prop);
 }
 
 void Telescope::processNumber(INumberVectorProperty *nvp)
 {
-    if (!strcmp(nvp->name, "EQUATORIAL_EOD_COORD"))
+    if (!strcmp(nvp->name, "EQUATORIAL_EOD_COORD") || !strcmp(nvp->name, "EQUATORIAL_COORD"))
     {
         INumber *RA  = IUFindNumber(nvp, "RA");
         INumber *DEC = IUFindNumber(nvp, "DEC");
@@ -148,17 +164,26 @@ void Telescope::processNumber(INumberVectorProperty *nvp)
 
         currentCoord.setRA(RA->value);
         currentCoord.setDec(DEC->value);
+
+        // If J2000, connvert it to JNow
+        if (!strcmp(nvp->name, "EQUATORIAL_COORD"))
+        {
+            currentCoord.setRA0(RA->value);
+            currentCoord.setDec0(DEC->value);
+            currentCoord.apparentCoord(static_cast<long double>(J2000), KStars::Instance()->data()->ut().djd());
+        }
+
         currentCoord.EquatorialToHorizontal(KStars::Instance()->data()->lst(),
                                             KStars::Instance()->data()->geo()->lat());
 
         if (nvp->s == IPS_BUSY && EqCoordPreviousState != IPS_BUSY)
         {
             if (getStatus() != MOUNT_PARKING)
-                KNotification::event(QLatin1String("SlewStarted"), i18n("Mount is slewing to target location"));
+                KSNotification::event(QLatin1String("SlewStarted"), i18n("Mount is slewing to target location"));
         }
         else if (EqCoordPreviousState == IPS_BUSY && nvp->s == IPS_OK)
         {
-            KNotification::event(QLatin1String("SlewCompleted"), i18n("Mount arrived at target location"));
+            KSNotification::event(QLatin1String("SlewCompleted"), i18n("Mount arrived at target location"));
 
             double maxrad = 1000.0 / Options::zoomFactor();
 
@@ -200,7 +225,7 @@ void Telescope::processSwitch(ISwitchVectorProperty *svp)
         if (conSP)
         {
             // TODO We must allow for multiple mount drivers to be online, not just one
-            // For the actions taken, the user should be able to specifiy which mounts shall receive the commands. It could be one
+            // For the actions taken, the user should be able to specify which mounts shall receive the commands. It could be one
             // or more. For now, we enable/disable telescope group on the assumption there is only one mount present.
             if (isConnected() == false && conSP->s == ISS_ON)
                 KStars::Instance()->slotSetTelescopeEnabled(true);
@@ -225,23 +250,23 @@ void Telescope::processSwitch(ISwitchVectorProperty *svp)
                 else if (parkStatus == PARK_UNPARKING)
                     parkStatus = PARK_PARKED;
 
-                KNotification::event(QLatin1String("MountParkingFailed"), i18n("Mount parking failed"));
+                KSNotification::event(QLatin1String("MountParkingFailed"), i18n("Mount parking failed"), KSNotification::EVENT_ALERT);
             }
             else if (svp->s == IPS_BUSY && sp->s == ISS_ON && parkStatus != PARK_PARKING)
             {
                 parkStatus = PARK_PARKING;
-                KNotification::event(QLatin1String("MountParking"), i18n("Mount parking is in progress"));
+                KSNotification::event(QLatin1String("MountParking"), i18n("Mount parking is in progress"));
                 currentObject = nullptr;
             }
             else if (svp->s == IPS_BUSY && sp->s == ISS_OFF && parkStatus != PARK_UNPARKING)
             {
                 parkStatus = PARK_UNPARKING;
-                KNotification::event(QLatin1String("MountUnParking"), i18n("Mount unparking is in progress"));
+                KSNotification::event(QLatin1String("MountUnParking"), i18n("Mount unparking is in progress"));
             }
             else if (svp->s == IPS_OK && sp->s == ISS_ON && parkStatus != PARK_PARKED)
             {
                 parkStatus = PARK_PARKED;
-                KNotification::event(QLatin1String("MountParked"), i18n("Mount parked"));
+                KSNotification::event(QLatin1String("MountParked"), i18n("Mount parked"));
                 currentObject = nullptr;
 
                 QAction *parkAction = KStars::Instance()->actionCollection()->action("telescope_park");
@@ -250,11 +275,13 @@ void Telescope::processSwitch(ISwitchVectorProperty *svp)
                 QAction *unParkAction = KStars::Instance()->actionCollection()->action("telescope_unpark");
                 if (unParkAction)
                     unParkAction->setEnabled(true);
+
+                emit newTarget(QString());
             }
             else if ( (svp->s == IPS_OK || svp->s == IPS_IDLE) && sp->s == ISS_OFF && parkStatus != PARK_UNPARKED)
             {
                 parkStatus = PARK_UNPARKED;
-                KNotification::event(QLatin1String("MountUnparked"), i18n("Mount unparked"));
+                KSNotification::event(QLatin1String("MountUnparked"), i18n("Mount unparked"));
                 currentObject = nullptr;
 
                 QAction *parkAction = KStars::Instance()->actionCollection()->action("telescope_park");
@@ -271,7 +298,7 @@ void Telescope::processSwitch(ISwitchVectorProperty *svp)
         if (svp->s == IPS_OK)
         {
             inCustomParking = false;
-            KNotification::event(QLatin1String("MountAborted"), i18n("Mount motion was aborted"));
+            KSNotification::event(QLatin1String("MountAborted"), i18n("Mount motion was aborted"), KSNotification::EVENT_WARN);
         }
     }
     else if (!strcmp(svp->name, "TELESCOPE_MOTION_NS"))
@@ -295,13 +322,13 @@ void Telescope::processSwitch(ISwitchVectorProperty *svp)
                                             (WECurrentMotion == IPS_BUSY && WEPreviousState != IPS_BUSY)))
             {
                 inManualMotion = true;
-                KNotification::event(QLatin1String("MotionStarted"), i18n("Mount is manually moving"));
+                KSNotification::event(QLatin1String("MotionStarted"), i18n("Mount is manually moving"));
             }
             else if (inManualMotion && ((NSCurrentMotion != IPS_BUSY && NSPreviousState == IPS_BUSY) ||
                                         (WECurrentMotion != IPS_BUSY && WEPreviousState == IPS_BUSY)))
             {
                 inManualMotion = false;
-                KNotification::event(QLatin1String("MotionStopped"), i18n("Mount is manually moving"));
+                KSNotification::event(QLatin1String("MotionStopped"), i18n("Mount motion stopped"));
             }
 
             NSPreviousState = NSCurrentMotion;
@@ -551,8 +578,8 @@ bool Telescope::sendCoords(SkyPoint *ScopeTarget)
         if (!DecEle)
             return false;
 
-        if (useJ2000)
-            ScopeTarget->apparentCoord(KStars::Instance()->data()->ut().djd(), (long double)J2000);
+        //if (useJ2000)
+            //ScopeTarget->apparentCoord( KStars::Instance()->data()->ut().djd(), static_cast<long double>(J2000));
 
         currentRA  = RAEle->value;
         currentDEC = DecEle->value;
@@ -617,12 +644,37 @@ bool Telescope::sendCoords(SkyPoint *ScopeTarget)
 
     if (EqProp)
     {
-        RAEle->value  = ScopeTarget->ra().Hours();
-        DecEle->value = ScopeTarget->dec().Degrees();
+        dms ra, de;
+
+        if (useJ2000)
+        {
+            // If we have invalid DEC, then convert coords to J2000
+            if (ScopeTarget->dec0().Degrees() == 180.0)
+            {
+               ScopeTarget->setRA0(ScopeTarget->ra());
+               ScopeTarget->setDec0(ScopeTarget->dec());
+               ScopeTarget->apparentCoord( KStars::Instance()->data()->ut().djd(), static_cast<long double>(J2000));
+               ra = ScopeTarget->ra();
+               de = ScopeTarget->dec();
+            }
+            else
+            {
+                ra = ScopeTarget->ra0();
+                de = ScopeTarget->dec0();
+            }
+        }
+        else
+        {
+            ra = ScopeTarget->ra();
+            de = ScopeTarget->dec();
+        }
+
+        RAEle->value  = ra.Hours();
+        DecEle->value = de.Degrees();
         clientManager->sendNewNumber(EqProp);
 
-        qCDebug(KSTARS_INDI) << "ISD:Telescope sending coords RA:" << ScopeTarget->ra().toHMSString() <<
-                                "(" << RAEle->value << ") DE:" << ScopeTarget->dec().toDMSString() <<
+        qCDebug(KSTARS_INDI) << "ISD:Telescope sending coords RA:" << ra.toHMSString() <<
+                                "(" << RAEle->value << ") DE:" << de.toDMSString() <<
                                 "(" << DecEle->value << ")";
 
         RAEle->value  = currentRA;
@@ -650,8 +702,16 @@ bool Telescope::Slew(double ra, double dec)
 {
     SkyPoint target;
 
-    target.setRA(ra);
-    target.setDec(dec);
+    if (m_isJ2000)
+    {
+        target.setRA0(ra);
+        target.setDec0(dec);
+    }
+    else
+    {
+        target.setRA(ra);
+        target.setDec(dec);
+    }
 
     return Slew(&target);
 }
@@ -789,7 +849,11 @@ bool Telescope::getEqCoords(double *ra, double *dec)
 
     EqProp = baseDevice->getNumber("EQUATORIAL_EOD_COORD");
     if (EqProp == nullptr)
-        return false;
+    {
+        EqProp = baseDevice->getNumber("EQUATORIAL_COORD");
+        if (EqProp == nullptr)
+            return false;
+    }
 
     RAEle = IUFindNumber(EqProp, "RA");
     if (!RAEle)
@@ -883,6 +947,8 @@ bool Telescope::setSlewRate(int index)
 
     if (index < 0 || index > slewRateSP->nsp)
         return false;
+    else if (IUFindOnSwitchIndex(slewRateSP) == index)
+        return true;
 
     IUResetSwitch(slewRateSP);
 
@@ -890,7 +956,19 @@ bool Telescope::setSlewRate(int index)
 
     clientManager->sendNewSwitch(slewRateSP);
 
+    emit slewRateChanged(index);
+
     return true;
+}
+
+int Telescope::getSlewRate() const
+{
+    ISwitchVectorProperty *slewRateSP = baseDevice->getSwitch("TELESCOPE_SLEW_RATE");
+
+    if (slewRateSP == nullptr)
+        return -1;
+
+    return IUFindOnSwitchIndex(slewRateSP);
 }
 
 void Telescope::setAltLimits(double minAltitude, double maxAltitude)

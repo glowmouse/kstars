@@ -277,24 +277,29 @@ void GenericDevice::processText(ITextVectorProperty *tvp)
         int d, m, y, min, sec, hour;
         float utcOffset;
         QDate indiDate;
-        QTime indiTime;
-        KStarsDateTime indiDateTime;
+        QTime indiTime;        
 
         tp = IUFindText(tvp, "UTC");
 
         if (!tp)
+        {
+            qCWarning(KSTARS_INDI) << "UTC property missing from TIME_UTC";
             return;
+        }
 
         sscanf(tp->text, "%d%*[^0-9]%d%*[^0-9]%dT%d%*[^0-9]%d%*[^0-9]%d", &y, &m, &d, &hour, &min, &sec);
         indiDate.setDate(y, m, d);
         indiTime.setHMS(hour, min, sec);
-        indiDateTime.setDate(indiDate);
-        indiDateTime.setTime(indiTime);
+
+        KStarsDateTime indiDateTime(QDateTime(indiDate, indiTime, Qt::UTC));
 
         tp = IUFindText(tvp, "OFFSET");
 
         if (!tp)
+        {
+            qCWarning(KSTARS_INDI) << "Offset property missing from TIME_UTC";
             return;
+        }
 
         sscanf(tp->text, "%f", &utcOffset);
 

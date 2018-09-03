@@ -71,12 +71,17 @@ bool OnlineAstrometryParser::startSovler(const QString &in_filename, const QStri
     // 2018-03-08 JM: Multiple users reported that network accessible is now failing if there is no internet connection
     // But LAN connectoin is established leading to failure of online solver with a local astrometry solver like ANSVR.
     // Therefore I am adding the exception below to remedy this situation for now.
+
+    // 2018-07-13: Due to this bug --> https://bugreports.qt.io/browse/QTBUG-68613
+    // The check will be disabled until it is resolved.
+    #if 0
     if (networkManager->networkAccessible() == false && Options::astrometryAPIURL().contains("127.0.0.1") == false)
     {
-        align->appendLogText(i18n("Error: No connection to the internet."));
+        align->appendLogText(i18n("Error: no connection to the Internet."));
         emit solverFailed();
         return false;
     }
+    #endif
 
     // Reset params
     center_ra = center_dec = downsample_factor = lowerScale = upperScale = INVALID_VALUE;
@@ -145,7 +150,7 @@ bool OnlineAstrometryParser::stopSolver()
     workflowStage  = NO_STAGE;
     solver_retries = 0;
 
-    disconnect(networkManager, SIGNAL(finished(QNetworkReply *)), this, SLOT(onResult(QNetworkReply *)));
+    disconnect(networkManager, SIGNAL(finished(QNetworkReply*)), this, SLOT(onResult(QNetworkReply*)));
 
     return true;
 }
@@ -181,7 +186,7 @@ void OnlineAstrometryParser::uploadFile()
     bool rc         = fitsFile->open(QIODevice::ReadOnly);
     if (rc == false)
     {
-        align->appendLogText(i18n("Failed to open file %1. %2", filename, fitsFile->errorString()));
+        align->appendLogText(i18n("Failed to open the file %1: %2", filename, fitsFile->errorString()));
         delete (fitsFile);
         emit solverFailed();
         return;
@@ -325,7 +330,7 @@ void OnlineAstrometryParser::onResult(QNetworkReply *reply)
 
     if (parseError.error != QJsonParseError::NoError)
     {
-        align->appendLogText(i18n("JSon error during parsing (%1).", parseError.errorString()));
+        align->appendLogText(i18n("JSON error during parsing (%1).", parseError.errorString()));
         emit solverFailed();
         return;
     }

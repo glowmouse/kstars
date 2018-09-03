@@ -29,6 +29,8 @@
 #include <basedevice.h>
 #include <ekos_guide_debug.h>
 
+#include "ui_manualdither.h"
+
 #define CAPTURE_TIMEOUT_THRESHOLD 30000
 
 namespace Ekos
@@ -56,6 +58,8 @@ Guide::Guide() : QWidget()
 
     // To do calibrate + guide in one command
     //autoCalibrateGuide = false;
+
+    connect(manualDitherB, &QPushButton::clicked, this, &Guide::handleManualDither);
 
     guideView = new FITSView(guideWidget, FITS_GUIDE);
     guideView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -453,6 +457,12 @@ Guide::Guide() : QWidget()
 
     // Set current guide type
     setGuiderType(-1);
+
+    //Note:  This is to prevent a button from being called the default button
+    //and then executing when the user hits the enter key such as when on a Text Box
+    QList<QPushButton *> qButtons = findChildren<QPushButton *>();
+    for (auto &button : qButtons)
+        button->setAutoDefault(false);
 }
 
 Guide::~Guide()
@@ -732,7 +742,7 @@ void Guide::exportGuideData()
 
     if (QFile::exists(path))
     {
-        int r = KMessageBox::warningContinueCancel(0,
+        int r = KMessageBox::warningContinueCancel(nullptr,
                                                    i18n("A file named \"%1\" already exists. "
                                                         "Overwrite it?",
                                                         exportFile.fileName()),
@@ -790,19 +800,32 @@ void Guide::addCCD(ISD::GDInterface *newCCD)
 
     if (CCDs.contains(ccd))
         return;
+    if (guiderType != GUIDE_INTERNAL)
+    {
+        ccd->setBLOBEnabled(Options::guideRemoteImagesEnabled());
+        guiderCombo->clear();
+        guiderCombo->setEnabled(false);
+        if (guiderType == GUIDE_PHD2)
+            guiderCombo->addItem("PHD2");
+        else
+            guiderCombo->addItem("LinGuider");
+        return;
+    }
+    else
+        guiderCombo->setEnabled(true);
 
     CCDs.append(ccd);
 
     guiderCombo->addItem(ccd->getDeviceName());
-
-    if (guiderType != GUIDE_INTERNAL && guider)
-        setBLOBEnabled(false);
 
     checkCCD();
 }
 
 void Guide::addGuideHead(ISD::GDInterface *newCCD)
 {
+    if (guiderType != GUIDE_INTERNAL)
+        return;
+
     ISD::CCD *ccd = static_cast<ISD::CCD *>(newCCD);
 
     CCDs.append(ccd);
@@ -823,13 +846,16 @@ void Guide::addGuideHead(ISD::GDInterface *newCCD)
 
 void Guide::setTelescope(ISD::GDInterface *newTelescope)
 {
-    currentTelescope = (ISD::Telescope *)newTelescope;
+    currentTelescope = dynamic_cast<ISD::Telescope *>(newTelescope);
 
     syncTelescopeInfo();
 }
 
 bool Guide::setCCD(const QString &device)
 {
+    if (guiderType != GUIDE_INTERNAL)
+        return true;
+
     for (int i = 0; i < guiderCombo->count(); i++)
         if (device == guiderCombo->itemText(i))
         {
@@ -843,6 +869,9 @@ bool Guide::setCCD(const QString &device)
 
 void Guide::checkCCD(int ccdNum)
 {
+    if (guiderType != GUIDE_INTERNAL)
+        return;
+
     if (ccdNum == -1)
     {
         ccdNum = guiderCombo->currentIndex();
@@ -951,7 +980,7 @@ void Guide::setTelescopeInfo(double primaryFocalLength, double primaryAperture, 
 
 void Guide::syncTelescopeInfo()
 {
-    if (currentTelescope == nullptr)
+    if (currentTelescope == nullptr || currentTelescope->isConnected() == false)
         return;
 
     INumberVectorProperty *nvp = currentTelescope->getBaseDevice()->getNumber("TELESCOPE_INFO");
@@ -1104,6 +1133,9 @@ void Guide::updateGuideParams()
 
 void Guide::addST4(ISD::ST4 *newST4)
 {
+    if (guiderType != GUIDE_INTERNAL)
+        return;
+
     foreach (ISD::ST4 *guidePort, ST4List)
     {
         if (!strcmp(guidePort->getDeviceName(), newST4->getDeviceName()))
@@ -1119,6 +1151,9 @@ void Guide::addST4(ISD::ST4 *newST4)
 
 bool Guide::setST4(const QString &device)
 {
+    if (guiderType != GUIDE_INTERNAL)
+        return true;
+
     for (int i = 0; i < ST4List.count(); i++)
         if (ST4List.at(i)->getDeviceName() == device)
         {
@@ -1132,7 +1167,7 @@ bool Guide::setST4(const QString &device)
 
 void Guide::setST4(int index)
 {
-    if (ST4List.empty() || index >= ST4List.count())
+    if (ST4List.empty() || index >= ST4List.count() || guiderType != GUIDE_INTERNAL)
         return;
 
     ST4Driver = ST4List.at(index);
@@ -1162,7 +1197,7 @@ bool Guide::captureOneFrame()
 
     if (currentCCD->isConnected() == false)
     {
-        appendLogText(i18n("Error: Lost connection to CCD."));
+        appendLogText(i18n("Error: lost connection to CCD."));
         return false;
     }
 
@@ -1238,6 +1273,8 @@ bool Guide::abort()
         if (targetChip->isCapturing())
             targetChip->abortExposure();
     }    
+
+    manualDitherB->setEnabled(false);
 
     setBusy(false);
 
@@ -1342,7 +1379,7 @@ void Guide::newFITS(IBLOB *bp)
     captureTimeout.stop();
     captureTimeoutCounter = 0;
 
-    disconnect(currentCCD, SIGNAL(BLOBUpdated(IBLOB *)), this, SLOT(newFITS(IBLOB *)));
+    disconnect(currentCCD, SIGNAL(BLOBUpdated(IBLOB*)), this, SLOT(newFITS(IBLOB*)));
 
     qCDebug(KSTARS_EKOS_GUIDE) << "Received guide frame.";
 
@@ -1434,7 +1471,7 @@ void Guide::setCaptureComplete()
             break;
     }
 
-    emit newStarPixmap(guideView->getTrackingBoxPixmap());
+    emit newStarPixmap(guideView->getTrackingBoxPixmap(10));
 }
 
 void Guide::appendLogText(const QString &text)
@@ -1618,6 +1655,13 @@ bool Guide::calibrate()
 
 bool Guide::guide()
 {
+    if (Options::defaultCaptureCCD() == guiderCombo->currentText())
+    {
+        if (KMessageBox::questionYesNo(nullptr, i18n("The guide camera is identical to the capture camera. Are you sure you want to continue?"))==
+                KMessageBox::No)
+            return false;
+    }
+
     if(guiderType != GUIDE_PHD2)
     {
         if (calibrationComplete == false)
@@ -1706,9 +1750,9 @@ void Guide::setMountStatus(ISD::Telescope::TelescopeStatus newState)
     if ((state == GUIDE_GUIDING || state == GUIDE_DITHERING) && (newState == ISD::Telescope::MOUNT_PARKING || newState == ISD::Telescope::MOUNT_SLEWING))
     {
         if (newState == ISD::Telescope::MOUNT_PARKING)
-            appendLogText(i18n("Mount is parking! Aborting guide..."));
+            appendLogText(i18n("Mount is parking. Aborting guide..."));
         else
-            appendLogText(i18n("Mount is slewing! Aborting guide..."));
+            appendLogText(i18n("Mount is slewing. Aborting guide..."));
 
         abort();
     }
@@ -1810,6 +1854,7 @@ QList<double> Guide::getGuidingDeviation()
     return deviation;
 }
 
+#if 0
 void Guide::startAutoCalibrateGuide()
 {
     // A must for auto stuff
@@ -1835,6 +1880,7 @@ void Guide::startAutoCalibrateGuide()
     }
 #endif
 }
+#endif
 
 void Guide::clearCalibration()
 {
@@ -1897,9 +1943,10 @@ void Guide::setStatus(Ekos::GuideState newState)
                 guide();
             break;
 
-        case GUIDE_CALIBRATION_ERROR:
         case GUIDE_IDLE:
+        case GUIDE_CALIBRATION_ERROR:
             setBusy(false);
+            manualDitherB->setEnabled(false);
             break;
 
         case GUIDE_CALIBRATING:
@@ -1919,6 +1966,7 @@ void Guide::setStatus(Ekos::GuideState newState)
                 guideTimer = QTime::currentTime();
                 refreshColorScheme();
             }
+            manualDitherB->setEnabled(true);
 
             break;
 
@@ -1946,7 +1994,7 @@ void Guide::setStatus(Ekos::GuideState newState)
         break;
 
         case GUIDE_DITHERING_ERROR:
-            appendLogText(i18n("Dithering failed!"));
+            appendLogText(i18n("Dithering failed."));
             // LinGuider guide continue after dithering failure
             if (guiderType != GUIDE_LINGUIDER)
             {
@@ -2220,6 +2268,9 @@ bool Guide::setGuiderType(int type)
             }
             else
                 guiderCombo->setEnabled(false);
+
+            if (Options::resetGuideCalibration())
+                appendLogText(i18n("Warning: Reset Guiding Calibration is enabled. It is recommended to turn this option off for PHD2."));
 
             updateGuideParams();
             break;
@@ -2624,7 +2675,7 @@ void Guide::setAxisDelta(double ra, double de)
 
     emit newAxisDelta(ra, de);
 
-    profilePixmap = driftGraph->grab(QRect(QPoint(0, 50), QSize(driftGraph->width(), 150)));
+    profilePixmap = driftGraph->grab();
     emit newProfilePixmap(profilePixmap);
 }
 
@@ -2837,15 +2888,15 @@ bool Guide::executeOperationStack()
             if (guider->calibrate())
             {
                 if (guiderType == GUIDE_INTERNAL)
-                    disconnect(guideView, SIGNAL(trackingStarSelected(int, int)), this,
-                               SLOT(setTrackingStar(int, int)));
+                    disconnect(guideView, SIGNAL(trackingStarSelected(int,int)), this,
+                               SLOT(setTrackingStar(int,int)));
                 setBusy(true);
             }
             else
             {
                 emit newStatus(GUIDE_CALIBRATION_ERROR);
                 state = GUIDE_IDLE;
-                appendLogText(i18n("Calibration failed to start!"));
+                appendLogText(i18n("Calibration failed to start."));
                 setBusy(false);
             }
             break;
@@ -3138,6 +3189,45 @@ void Guide::setDefaultCCD(const QString &ccd)
         QString ccdName = ccd;
         ccdName = ccdName.remove(" Guider");
         setBLOBEnabled(Options::guideRemoteImagesEnabled(), ccdName);
+    }
+}
+
+void Guide::handleManualDither()
+{
+    ISD::CCDChip *targetChip = currentCCD->getChip(useGuideHead ? ISD::CCDChip::GUIDE_CCD : ISD::CCDChip::PRIMARY_CCD);
+    if (targetChip == nullptr)
+        return;
+
+    Ui::ManualDither ditherDialog;
+    QDialog container(this);
+    ditherDialog.setupUi(&container);
+
+    if (guiderType != GUIDE_INTERNAL)
+    {
+        ditherDialog.coordinatesR->setEnabled(false);
+        ditherDialog.x->setEnabled(false);
+        ditherDialog.y->setEnabled(false);
+    }
+
+    int minX, maxX, minY, maxY, minW, maxW, minH, maxH;
+    targetChip->getFrameMinMax(&minX, &maxX, &minY, &maxY, &minW, &maxW, &minH, &maxH);
+
+    ditherDialog.x->setMinimum(minX);
+    ditherDialog.x->setMaximum(maxX);
+    ditherDialog.y->setMinimum(minY);
+    ditherDialog.y->setMaximum(maxY);
+
+    ditherDialog.x->setValue(starCenter.x());
+    ditherDialog.y->setValue(starCenter.y());
+
+    if (container.exec() == QDialog::Accepted)
+    {
+        if (ditherDialog.magnitudeR->isChecked())
+            guider->dither(ditherDialog.magnitude->value());
+        else
+        {
+            dynamic_cast<InternalGuider *>(guider)->ditherXY(ditherDialog.x->value(), ditherDialog.y->value());
+        }
     }
 }
 

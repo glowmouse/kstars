@@ -20,6 +20,7 @@
 #include "fitsdata.h"
 
 #include "sep/sep.h"
+#include "fpack.h"
 
 #include "kstarsdata.h"
 #include "ksutils.h"
@@ -103,9 +104,11 @@ FITSData::~FITSData()
     {
         fits_close_file(fptr, &status);
 
-        if (tempFile && autoRemoveTemporaryFITS)
+        if (m_isTemporary && autoRemoveTemporaryFITS)
             QFile::remove(filename);
     }
+
+    qDeleteAll(records);
 }
 
 bool FITSData::loadFITS(const QString &inFilename, bool silent)
@@ -122,7 +125,12 @@ bool FITSData::loadFITS(const QString &inFilename, bool silent)
     {
         fits_close_file(fptr, &status);
 
-        if (tempFile && autoRemoveTemporaryFITS)
+        // If current file is temporary AND
+        // Auto Remove Temporary File is Set AND
+        // New filename is different from existing filename
+        // THen remove it. We have to check for name since we cannot delete
+        // the same filename and try to open it below!
+        if (m_isTemporary && autoRemoveTemporaryFITS && inFilename != filename)
             QFile::remove(filename);
     }
 
@@ -131,22 +139,32 @@ bool FITSData::loadFITS(const QString &inFilename, bool silent)
     qCInfo(KSTARS_FITS) << "Loading FITS file " << filename;
 
     if (filename.startsWith(QLatin1String("/tmp/")) || filename.contains("/Temp"))
-        tempFile = true;
+        m_isTemporary = true;
     else
-        tempFile = false;
+        m_isTemporary = false;
 
-#if 0
-    if (fits_open_image(&fptr, filename.toLatin1(), READONLY, &status))
+    if (filename.endsWith(".fz"))
     {
-        fits_report_error(stderr, status);
-        fits_get_errstatus(status, error_status);
-        errMessage = i18n("Could not open file %1. Error %2", filename, QString::fromUtf8(error_status));
-        if (silent == false)
-            KSNotification::error(errMessage, i18n("FITS Open"));
-        qCCritical(KSTARS_FITS) << errMessage;
-        return false;
+        QString uncompressedFile = QDir::tempPath() + QString("/%1").arg(QUuid::createUuid().toString().remove(QRegularExpression("[-{}]")));
+        m_isTemporary = true;
+        fpstate	fpvar;
+        std::vector<std::string> arguments = {"funpack", filename.toLatin1().toStdString()};
+        std::vector<char *> arglist;
+        for (const auto& arg : arguments)
+            arglist.push_back((char*)arg.data());
+        arglist.push_back(nullptr);
+
+        int argc = arglist.size() - 1;
+        char **argv = arglist.data();
+
+        // TODO: Check for errors
+        fp_init (&fpvar);
+        fp_get_param (argc, argv, &fpvar);
+        fp_preflight (argc, argv, FUNPACK, &fpvar);
+        fp_loop (argc, argv, FUNPACK, uncompressedFile.toLatin1().data(), fpvar);
+
+        filename = uncompressedFile;
     }
-#endif
 
     // Use open diskfile as it does not use extended file names which has problems opening
     // files with [ ] or ( ) in their names.
@@ -161,11 +179,13 @@ bool FITSData::loadFITS(const QString &inFilename, bool silent)
         return false;
     }
 
+    stats.size = QFile(filename).size();
+
     if (fits_movabs_hdu(fptr, 1, IMAGE_HDU, &status))
     {
         fits_report_error(stderr, status);
         fits_get_errstatus(status, error_status);
-        errMessage = i18n("Could not locate image HDU. Error %2", QString::fromUtf8(error_status));
+        errMessage = i18n("Could not locate image HDU. Error %1", QString::fromUtf8(error_status));
         if (!silent)
             KSNotification::error(errMessage, i18n("FITS Open"));
         qCCritical(KSTARS_FITS) << errMessage;
@@ -258,7 +278,8 @@ bool FITSData::loadFITS(const QString &inFilename, bool silent)
     channels = naxes[2];
 
     // Channels always set to #1 if we are not required to process 3D Cubes
-    if (!Options::auto3DCube())
+    // Or if mode is not FITS_NORMAL (guide, focus..etc)
+    if (mode != FITS_NORMAL || !Options::auto3DCube())
         channels = 1;
 
     //image_buffer = new float[stats.samples_per_channel * channels];
@@ -289,6 +310,8 @@ bool FITSData::loadFITS(const QString &inFilename, bool silent)
         return false;
     }
 
+    parseHeader();
+
     if (Options::autoDebayer() && checkDebayer())
     {
         bayerBuffer = imageBuffer;
@@ -312,6 +335,12 @@ int FITSData::saveFITS(const QString &newFilename)
 {
     if (newFilename == filename)
         return 0;
+
+    if (m_isCompressed)
+    {
+        KSNotification::error(i18n("Saving compressed files is not supported."));
+        return -1;
+    }
 
     int status = 0, exttype = 0;
     long nelements;
@@ -341,10 +370,10 @@ int FITSData::saveFITS(const QString &newFilename)
             return -1;
         }
 
-        if (tempFile && autoRemoveTemporaryFITS)
+        if (m_isTemporary && autoRemoveTemporaryFITS)
         {
             QFile::remove(filename);
-            tempFile = false;
+            m_isTemporary = false;
         }
 
         filename = finalFileName;
@@ -472,10 +501,10 @@ int FITSData::saveFITS(const QString &newFilename)
 
     rotCounter = flipHCounter = flipVCounter = 0;
 
-    if (tempFile && autoRemoveTemporaryFITS)
+    if (m_isTemporary && autoRemoveTemporaryFITS)
     {
         QFile::remove(filename);
-        tempFile = false;
+        m_isTemporary = false;
     }
 
     filename = newFilename;
@@ -884,23 +913,76 @@ void FITSData::setMinMax(double newMin, double newMax, uint8_t channel)
     stats.max[channel] = newMax;
 }
 
-int FITSData::getFITSRecord(QString &recordList, int &nkeys)
+bool FITSData::parseHeader()
 {
     char *header = nullptr;
-    int status   = 0;
+    int status = 0, nkeys=0;
 
     if (fits_hdr2str(fptr, 0, nullptr, 0, &header, &nkeys, &status))
     {
         fits_report_error(stderr, status);
         free(header);
-        return -1;
+        return false;
     }
 
-    recordList = QString(header);
+    QString recordList = QString(header);
+
+    for (int i = 0; i < nkeys; i++)
+    {
+        Record *oneRecord = new Record;
+        // Quotes cause issues for simplified below so we're removing them.
+        QString record = recordList.mid(i * 80, 80).remove("'");
+        QStringList properties = record.split(QRegExp("[=/]"));
+        // If it is only a comment
+        if (properties.size() == 1)
+        {
+            oneRecord->key = properties[0].mid(0, 7);
+            oneRecord->comment = properties[0].mid(8).simplified();
+        }
+        else
+        {
+            oneRecord->key = properties[0].simplified();
+            oneRecord->value = properties[1].simplified();
+            if (properties.size() > 2)
+                oneRecord->comment = properties[2].simplified();
+
+            // Try to guess the value.
+            // Test for integer & double. If neither, then leave it as "string".
+            bool ok = false;
+
+            // Is it Integer?
+            oneRecord->value.toInt(&ok);
+            if (ok)
+                oneRecord->value.convert(QMetaType::Int);
+            else
+            {
+                // Is it double?
+                oneRecord->value.toDouble(&ok);
+                if (ok)
+                    oneRecord->value.convert(QMetaType::Double);
+            }
+        }
+
+        records.append(oneRecord);
+    }
 
     free(header);
 
-    return 0;
+    return true;
+}
+
+bool FITSData::getRecordValue(const QString &key, QVariant &value) const
+{
+    for (Record *oneRecord : records)
+    {
+        if (oneRecord->key == key)
+        {
+            value = oneRecord->value;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 bool FITSData::checkCollision(Edge *s1, Edge *s2)
@@ -1170,7 +1252,7 @@ int FITSData::findCannyStar(FITSData *data, const QRect &boundary)
     double FSum = 0, HF = 0, TF = 0;
     const double resolution = 1.0 / 20.0;
 
-    int cen_y = std::round(center->y);
+    int cen_y = qRound(center->y);
 
     double rightEdge = center->x + center->width / 2.0;
     double leftEdge  = center->x - center->width / 2.0;
@@ -1376,7 +1458,7 @@ int FITSData::findOneStar(const QRect &boundary)
     double FSum = 0, HF = 0, TF = 0, min = stats.min[0];
     const double resolution = 1.0 / 20.0;
 
-    int cen_y = std::round(center->y);
+    int cen_y = qRound(center->y);
 
     double rightEdge = center->x + center->width / 2.0;
     double leftEdge  = center->x - center->width / 2.0;
@@ -1851,7 +1933,7 @@ double FITSData::getHFR(HFRType type)
         }
 
         maxHFRStar = starCenters[maxIndex];
-        return starCenters[maxIndex]->HFR;
+        return static_cast<double>(starCenters[maxIndex]->HFR);
     }
 
     double FSum   = 0;
@@ -1860,7 +1942,7 @@ double FITSData::getHFR(HFRType type)
     // Weighted average HFR
     for (int i = 0; i < starCenters.count(); i++)
     {
-        avgHFR += starCenters[i]->val * starCenters[i]->HFR;
+        avgHFR += static_cast<double>(starCenters[i]->val * starCenters[i]->HFR);
         FSum += starCenters[i]->val;
     }
 
@@ -1930,76 +2012,76 @@ void FITSData::applyFilter(FITSScale type, uint8_t *image, double *min, double *
 
 
     switch (data_type)
-        {
-            case TBYTE:
-            {
-                dataMin = dataMin < 0 ? 0 : dataMin;
-                dataMax = dataMax > UINT8_MAX ? UINT8_MAX : dataMax;
-                applyFilter<uint8_t>(type, image, dataMin, dataMax);
-            }
-            break;
+    {
+    case TBYTE:
+    {
+        dataMin = dataMin < 0 ? 0 : dataMin;
+        dataMax = dataMax > UINT8_MAX ? UINT8_MAX : dataMax;
+        applyFilter<uint8_t>(type, image, dataMin, dataMax);
+    }
+        break;
 
-            case TSHORT:
-            {
-                dataMin = dataMin < INT16_MIN ? INT16_MIN : dataMin;
-                dataMax = dataMax > INT16_MAX ? INT16_MAX : dataMax;
-                applyFilter<uint16_t>(type, image, dataMin, dataMax);
-            }
+    case TSHORT:
+    {
+        dataMin = dataMin < INT16_MIN ? INT16_MIN : dataMin;
+        dataMax = dataMax > INT16_MAX ? INT16_MAX : dataMax;
+        applyFilter<uint16_t>(type, image, dataMin, dataMax);
+    }
 
-            break;
+        break;
 
-            case TUSHORT:
-            {
-                dataMin = dataMin < 0 ? 0 : dataMin;
-                dataMax = dataMax > UINT16_MAX ? UINT16_MAX : dataMax;
-                applyFilter<uint16_t>(type, image, dataMin, dataMax);
-            }
-            break;
+    case TUSHORT:
+    {
+        dataMin = dataMin < 0 ? 0 : dataMin;
+        dataMax = dataMax > UINT16_MAX ? UINT16_MAX : dataMax;
+        applyFilter<uint16_t>(type, image, dataMin, dataMax);
+    }
+        break;
 
-            case TLONG:
-            {
-                dataMin = dataMin < INT_MIN ? INT_MIN : dataMin;
-                dataMax = dataMax > INT_MAX ? INT_MAX : dataMax;
-                applyFilter<uint16_t>(type, image, dataMin, dataMax);
-            }
-            break;
+    case TLONG:
+    {
+        dataMin = dataMin < INT_MIN ? INT_MIN : dataMin;
+        dataMax = dataMax > INT_MAX ? INT_MAX : dataMax;
+        applyFilter<uint16_t>(type, image, dataMin, dataMax);
+    }
+        break;
 
-            case TULONG:
-            {
-                dataMin = dataMin < 0 ? 0 : dataMin;
-                dataMax = dataMax > UINT_MAX ? UINT_MAX : dataMax;
-                applyFilter<uint16_t>(type, image, dataMin, dataMax);
-            }
-            break;
+    case TULONG:
+    {
+        dataMin = dataMin < 0 ? 0 : dataMin;
+        dataMax = dataMax > UINT_MAX ? UINT_MAX : dataMax;
+        applyFilter<uint16_t>(type, image, dataMin, dataMax);
+    }
+        break;
 
-            case TFLOAT:
-            {
-                dataMin = dataMin < FLT_MIN ? FLT_MIN : dataMin;
-                dataMax = dataMax > FLT_MAX ? FLT_MAX : dataMax;
-                applyFilter<float>(type, image, dataMin, dataMax);
-            }
-            break;
+    case TFLOAT:
+    {
+        dataMin = dataMin < FLT_MIN ? FLT_MIN : dataMin;
+        dataMax = dataMax > FLT_MAX ? FLT_MAX : dataMax;
+        applyFilter<float>(type, image, dataMin, dataMax);
+    }
+        break;
 
-            case TLONGLONG:
-            {
-                dataMin = dataMin < LLONG_MIN ? LLONG_MIN : dataMin;
-                dataMax = dataMax > LLONG_MAX ? LLONG_MAX : dataMax;
-                applyFilter<long>(type, image, dataMin, dataMax);
-            }
-            break;
+    case TLONGLONG:
+    {
+        dataMin = dataMin < LLONG_MIN ? LLONG_MIN : dataMin;
+        dataMax = dataMax > LLONG_MAX ? LLONG_MAX : dataMax;
+        applyFilter<long>(type, image, dataMin, dataMax);
+    }
+        break;
 
-            case TDOUBLE:
-            {
-                dataMin = dataMin < DBL_MIN ? DBL_MIN : dataMin;
-                dataMax = dataMax > DBL_MAX ? DBL_MAX : dataMax;
-                applyFilter<double>(type, image, dataMin, dataMax);
-            }
+    case TDOUBLE:
+    {
+        dataMin = dataMin < DBL_MIN ? DBL_MIN : dataMin;
+        dataMax = dataMax > DBL_MAX ? DBL_MAX : dataMax;
+        applyFilter<double>(type, image, dataMin, dataMax);
+    }
 
-            break;
+        break;
 
-            default:
-                return;
-        }
+    default:
+        return;
+    }
 
     if (min != nullptr)
         *min = dataMin;
@@ -2244,7 +2326,7 @@ void FITSData::applyFilter(FITSScale type, uint8_t *targetImage, double image_mi
         break;
     }
 #if 0
-    }
+}
 else
 {
 uint32_t index = 0, row=0, offset=0;
@@ -2512,13 +2594,13 @@ qCInfo(KSTARS_FITS) << filename << "Apply Filter calculation took" << timer.elap
 #endif
 }
 
-QList<Edge *> FITSData::getStarCentersInSubFrame(QRect subFrame)
+QList<Edge *> FITSData::getStarCentersInSubFrame(QRect subFrame) const
 {
     QList<Edge *> starCentersInSubFrame;
     for (int i = 0; i < starCenters.count(); i++)
     {
-        int x = starCenters[i]->x;
-        int y = starCenters[i]->y;
+        int x = static_cast<int>(starCenters[i]->x);
+        int y = static_cast<int>(starCenters[i]->y);
         if(subFrame.contains(x,y))
         {
             starCentersInSubFrame.append(starCenters[i]);
@@ -2540,8 +2622,8 @@ void FITSData::getCenterSelection(int *x, int *y)
     foreach (Edge *center, starCenters)
         if (checkCollision(pEdge, center))
         {
-            *x = center->x;
-            *y = center->y;
+            *x = static_cast<int>(center->x);
+            *y = static_cast<int>(center->y);
             break;
         }
 
@@ -2789,7 +2871,7 @@ void FITSData::findObjectsInImage(double world[], double phi, double theta, doub
     if (fits_read_keyword(fptr, "DATE-OBS", date, nullptr, &status) == 0)
     {
         QString tsString(date);
-        tsString = tsString.remove("'").trimmed();
+        tsString = tsString.remove('\'').trimmed();
 
         QDateTime ts = QDateTime::fromString(tsString, Qt::ISODate);
 
@@ -3486,7 +3568,7 @@ bool FITSData::checkDebayer()
         return false;
     }
     QString pattern(bayerPattern);
-    pattern = pattern.remove("'").trimmed();
+    pattern = pattern.remove('\'').trimmed();
 
     if (pattern == "RGGB")
         debayerParams.filter = DC1394_COLOR_FILTER_RGGB;
@@ -3624,7 +3706,8 @@ bool FITSData::debayer_8bit()
         *bBuff++ = destinationBuffer[i + 2];
     }
 
-    channels = 3;
+    channels = (mode == FITS_NORMAL) ? 3 : 1;
+
     delete[] destinationBuffer;
     bayerBuffer = nullptr;
     return true;
@@ -3700,19 +3783,19 @@ bool FITSData::debayer_16bit()
         *bBuff++ = dstBuffer[i + 2];
     }
 
-    channels = 3;
+    channels = (mode == FITS_NORMAL) ? 3 : 1;
     delete[] destinationBuffer;
     bayerBuffer = nullptr;
     return true;
 }
 
-double FITSData::getADU()
+double FITSData::getADU() const
 {
     double adu = 0;
     for (int i = 0; i < channels; i++)
         adu += stats.mean[i];
 
-    return (adu / (double)channels);
+    return (adu / static_cast<double>(channels));
 }
 
 /* CannyDetector, Implementation of Canny edge detector in Qt/C++.
@@ -4092,7 +4175,7 @@ void FITSData::convertToQImage(double dataMin, double dataMax, double scale, dou
     T bMax    = dataMax > limit ? limit : dataMax;
     uint16_t w    = getWidth();
     uint16_t h    = getHeight();
-    uint32_t size = getSize();
+    uint32_t size = getSamplesPerChannel();
     double val;
 
     if (getNumOfChannels() == 1)
@@ -4226,7 +4309,7 @@ bool FITSData::createWCSFile(const QString &newWCSFile, double orientation, doub
     nelements = stats.samples_per_channel * channels;
 
     /* Create a new File, overwriting existing*/
-    if (fits_create_file(&new_fptr, QString("!" + newWCSFile).toLatin1(), &status))
+    if (fits_create_file(&new_fptr, QString('!' + newWCSFile).toLatin1(), &status))
     {
         fits_get_errstatus(status, errMsg);
         lastError = QString(errMsg);
@@ -4261,15 +4344,15 @@ bool FITSData::createWCSFile(const QString &newWCSFile, double orientation, doub
 
     status = 0;
 
-    if (tempFile && autoRemoveTemporaryFITS)
+    if (m_isTemporary && autoRemoveTemporaryFITS)
     {
         QFile::remove(filename);
-        tempFile = false;
+        m_isTemporary = false;
         qCDebug(KSTARS_FITS) << "Removing FITS File: " << filename;
     }
 
     filename = newWCSFile;
-    tempFile = true;
+    m_isTemporary = true;
 
     fptr = new_fptr;
 
@@ -4479,7 +4562,7 @@ int FITSData::findSEPStars(const QRect &boundary)
     status = sep_bkg_array(bkg, imback, SEP_TFLOAT);
     if (status != 0) goto exit;
 
-    // #3 Background substraction
+    // #3 Background subtraction
     status = sep_bkg_subarray(bkg, im.data, im.dtype);
     if (status != 0) goto exit;
 

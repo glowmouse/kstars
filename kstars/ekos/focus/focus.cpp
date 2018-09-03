@@ -20,8 +20,7 @@
 #include "fitsviewer/fitstab.h"
 #include "fitsviewer/fitsview.h"
 #include "indi/indifilter.h"
-
-#include <KNotifications/KNotification>
+#include "ksnotification.h"
 
 #include <basedevice.h>
 
@@ -256,6 +255,12 @@ Focus::Focus()
             focusView->setTrackingBox(QRect());
         }
     });
+
+    //Note:  This is to prevent a button from being called the default button
+    //and then executing when the user hits the enter key such as when on a Text Box
+    QList<QPushButton *> qButtons = findChildren<QPushButton *>();
+    for (auto &button : qButtons)
+        button->setAutoDefault(false);
 }
 
 Focus::~Focus()
@@ -371,7 +376,7 @@ void Focus::checkCCD(int ccdNum)
 
             bool hasGain = currentCCD->hasGain();
             gainLabel->setEnabled(hasGain);
-            gainIN->setEnabled(hasGain && currentCCD->getPermission("CCD_GAIN") != IP_RO);
+            gainIN->setEnabled(hasGain && currentCCD->getGainPermission() != IP_RO);
             if (hasGain)
             {
                 double gain = 0, min = 0, max = 0, step = 1;
@@ -494,7 +499,7 @@ void Focus::checkFilter(int filterNum)
     if (filterNum <= Filters.count())
         currentFilter = Filters.at(filterNum-1);
 
-    filterManager->setCurrentFilter(currentFilter);
+    filterManager->setCurrentFilterWheel(currentFilter);
 
     FilterPosCombo->clear();
 
@@ -550,11 +555,13 @@ void Focus::checkFocuser(int FocuserNum)
     if (FocuserNum <= Focusers.count())
         currentFocuser = Focusers.at(FocuserNum);
 
+    filterManager->setFocusReady(currentFocuser->isConnected());
+
     // Disconnect all focusers
     foreach (ISD::Focuser *oneFocuser, Focusers)
     {
-        disconnect(oneFocuser, SIGNAL(numberUpdated(INumberVectorProperty *)), this,
-                   SLOT(processFocusNumber(INumberVectorProperty *)));
+        disconnect(oneFocuser, SIGNAL(numberUpdated(INumberVectorProperty*)), this,
+                   SLOT(processFocusNumber(INumberVectorProperty*)));
         //disconnect(oneFocuser, SIGNAL(propertyDefined(INDI::Property*)), this, SLOT(registerFocusProperty(INDI::Property*)));
     }
 
@@ -737,7 +744,7 @@ void Focus::start()
     // Denoise with median filter
     //defaultScale = FITS_MEDIAN;
 
-    KNotification::event(QLatin1String("FocusStarted"), i18n("Autofocus operation started"));
+    KSNotification::event(QLatin1String("FocusStarted"), i18n("Autofocus operation started"));
 
     capture();
 }
@@ -788,7 +795,7 @@ void Focus::stop(bool aborted)
     HFRFrames.clear();
     //maxHFR=1;
 
-    disconnect(currentCCD, SIGNAL(BLOBUpdated(IBLOB *)), this, SLOT(newFITS(IBLOB *)));
+    disconnect(currentCCD, SIGNAL(BLOBUpdated(IBLOB*)), this, SLOT(newFITS(IBLOB*)));
 
     if (rememberUploadMode != currentCCD->getUploadMode())
         currentCCD->setUploadMode(rememberUploadMode);
@@ -1034,7 +1041,7 @@ void Focus::newFITS(IBLOB *bp)
         return;
 
     ISD::CCDChip *targetChip = currentCCD->getChip(ISD::CCDChip::PRIMARY_CCD);
-    disconnect(currentCCD, SIGNAL(BLOBUpdated(IBLOB *)), this, SLOT(newFITS(IBLOB *)));
+    disconnect(currentCCD, SIGNAL(BLOBUpdated(IBLOB*)), this, SLOT(newFITS(IBLOB*)));
 
     if (darkFrameCheck->isChecked())
     {
@@ -1096,8 +1103,7 @@ void Focus::setCaptureComplete()
 
     FITSData *image_data = focusView->getImageData();
 
-    starPixmap = focusView->getTrackingBoxPixmap();
-    emit newStarPixmap(starPixmap);
+    emit newStarPixmap(focusView->getTrackingBoxPixmap(10));
 
     // If we're not framing, let's try to detect stars
     //if (inFocusLoop == false || (inFocusLoop && focusView->isTrackingBoxEnabled()))
@@ -1130,10 +1136,15 @@ void Focus::setCaptureComplete()
                 }
                 else
                 {
+                   focusView->setTrackingBoxEnabled(false);
+
                     if (focusDetection != ALGORITHM_CENTROID && focusDetection != ALGORITHM_SEP)
                         focusView->findStars(ALGORITHM_CENTROID);
                     else
                         focusView->findStars(focusDetection);
+
+                   focusView->setTrackingBoxEnabled(true);
+
                     focusView->updateFrame();
                     currentHFR = image_data->getHFR(HFR_MAX);
                 }
@@ -1201,7 +1212,11 @@ void Focus::setCaptureComplete()
             return;
         }
 
-        emit newHFR(currentHFR);
+
+        if (canAbsMove)
+            emit newHFR(currentHFR, static_cast<int>(currentPosition));
+        else
+            emit newHFR(currentHFR, -1);
 
         QString HFRText = QString("%1").arg(currentHFR, 0, 'f', 2);
 
@@ -2515,12 +2530,12 @@ void Focus::setAutoFocusResult(bool status)
 
     if (status)
     {
-        KNotification::event(QLatin1String("FocusSuccessful"), i18n("Autofocus operation completed successfully"));
+        KSNotification::event(QLatin1String("FocusSuccessful"), i18n("Autofocus operation completed successfully"));
         state = Ekos::FOCUS_COMPLETE;
     }
     else
     {
-        KNotification::event(QLatin1String("FocusFailed"), i18n("Autofocus operation failed with errors"));
+        KSNotification::event(QLatin1String("FocusFailed"), i18n("Autofocus operation failed with errors"), KSNotification::EVENT_ALERT);
         state = Ekos::FOCUS_FAILED;
     }
 

@@ -249,13 +249,25 @@ void cgmath::getStarScreenPosition(double *dx, double *dy) const
 
 bool cgmath::reset(void)
 {
-    square_alg_idx = AUTO_THRESHOLD;
+//    square_alg_idx = AUTO_THRESHOLD;
 
-    // sky coord. system vars.
-    star_pos     = Vector(0);
-    scr_star_pos = Vector(0);
+//    // sky coord. system vars.
+//    star_pos     = Vector(0);
+//    scr_star_pos = Vector(0);
 
-    setReticleParameters(video_width / 2, video_height / 2, 0.0);
+//    setReticleParameters(video_width / 2, video_height / 2, 0.0);
+
+    ticks = 0;
+    channel_ticks[GUIDE_RA] = channel_ticks[GUIDE_DEC] = 0;
+    accum_ticks[GUIDE_RA] = accum_ticks[GUIDE_DEC] = 0;
+    drift_integral[GUIDE_RA] = drift_integral[GUIDE_DEC] = 0;
+    out_params.reset();
+
+    memset(drift[GUIDE_RA], 0, sizeof(double) * MAX_ACCUM_CNT);
+    memset(drift[GUIDE_DEC], 0, sizeof(double) * MAX_ACCUM_CNT);
+
+    // cleanup stat vars.
+    sum = 0;
 
     return true;
 }
@@ -554,7 +566,7 @@ float *cgmath::createFloatImage(FITSData *target) const
 
     // #1 Convert to float array
     // We only process 1st plane if it is a color image
-    uint32_t imgSize = imageData->getSize();
+    uint32_t imgSize = imageData->getSamplesPerChannel();
     float *imgFloat  = new float[imgSize];
 
     if (imgFloat == nullptr)
@@ -1575,8 +1587,8 @@ QList<Edge*> cgmath::PSFAutoFind(int extraEdgeAllowance)
 
     // run the PSF convolution
     {
-        float *tmp = new float[smoothed->getSize()];
-        memset(tmp, 0, smoothed->getSize()*sizeof(float));
+        float *tmp = new float[smoothed->getSamplesPerChannel()];
+        memset(tmp, 0, smoothed->getSamplesPerChannel()*sizeof(float));
         psf_conv(tmp, conv, subW, subH);
         delete [] conv;
         // Swap

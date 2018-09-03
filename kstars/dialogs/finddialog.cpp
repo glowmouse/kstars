@@ -21,6 +21,7 @@
 #include "kstarsdata.h"
 #include "Options.h"
 #include "detaildialog.h"
+#include "skymap.h"
 #include "skyobjects/skyobject.h"
 #include "skyobjects/deepskyobject.h"
 #include "skycomponents/starcomponent.h"
@@ -87,7 +88,8 @@ FindDialog::FindDialog(QWidget *parent) : QDialog(parent), timer(nullptr), m_tar
 
     ui->FilterType->setCurrentIndex(0); // show all types of objects
 
-    fModel    = new SkyObjectListModel(this);
+    fModel = new SkyObjectListModel(this);
+    connect(KStars::Instance()->map(), &SkyMap::removeSkyObject, fModel, &SkyObjectListModel::removeSkyObject);
     sortModel = new QSortFilterProxyModel(ui->SearchList);
     sortModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
     sortModel->setSourceModel(fModel);
@@ -248,7 +250,7 @@ void FindDialog::filterList()
 {
     QString SearchText = processSearchText();
     sortModel->setFilterFixedString(SearchText);
-    ui->InternetSearchButton->setText(i18n("or search the internet for %1", SearchText));
+    ui->InternetSearchButton->setText(i18n("or search the Internet for %1", SearchText));
     filterByType();
     initSelection();
 
@@ -353,9 +355,9 @@ void FindDialog::finishProcessing(SkyObject *selObj, bool resolve)
 {
     if (!selObj && resolve)
     {
-        CatalogEntryData cedata;
-        cedata             = NameResolver::resolveName(processSearchText());
+        CatalogEntryData cedata = NameResolver::resolveName(processSearchText());
         DeepSkyObject *dso = nullptr;
+
         if (!std::isnan(cedata.ra) && !std::isnan(cedata.dec))
         {
             dso = KStarsData::Instance()->skyComposite()->internetResolvedComponent()->addObject(cedata);

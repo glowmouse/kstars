@@ -16,7 +16,7 @@
 
 #include <QTime>
 #include <QTimer>
-#include <QtDBus/QtDBus>
+#include <QtDBus>
 
 class QProgressIndicator;
 class QTabWidget;
@@ -260,11 +260,6 @@ class Guide : public QWidget, public Ui::Guide
     Q_SCRIPTABLE Q_NOREPLY void setSubFrameEnabled(bool enable);
 
     /** DBUS interface function.
-         * @brief startAutoCalibrateGuide Start calibration with auto star selected followed immediately by guiding.
-         */
-    Q_SCRIPTABLE Q_NOREPLY void startAutoCalibrateGuide();
-
-    /** DBUS interface function.
          * Selects which guiding process to utilize for calibration & guiding.
          * @param type Type of guider process to use. 0 for internal guider, 1 for external PHD2, 2 for external lin_guider. Pass -1 to select default guider in options.
          * @return True if guiding is switched to the new requested type. False otherwise.
@@ -314,7 +309,7 @@ class Guide : public QWidget, public Ui::Guide
          */
     void setTelescopeInfo(double primaryFocalLength, double primaryAperture, double guideFocalLength, double guideAperture);
 
-    //This Funciton will allow PHD2 to update the exposure values to the recommended ones.
+    // This Function will allow PHD2 to update the exposure values to the recommended ones.
     QString setRecommendedExposureValues(QList<double> values);
 
     // Append Log entry
@@ -468,6 +463,8 @@ class Guide : public QWidget, public Ui::Guide
      * @param name CCD to enable to disable. If empty (default), then action is applied to all CCDs.
      */
     void setBLOBEnabled(bool enable, const QString &ccd = QString());
+
+    void handleManualDither();
 
     // Operation stack
     void buildOperationStack(GuideState operation);
